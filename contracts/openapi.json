@@ -1,0 +1,233 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "BFF Dashboard API",
+    "version": "1.0.0"
+  },
+  "components": {
+    "schemas": {
+      "DashboardBootstrap": {
+        "type": "object",
+        "properties": {
+          "userFirstName": {
+            "type": "string"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "progress": {
+                  "type": "number"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "todo",
+                    "in-progress",
+                    "review",
+                    "done"
+                  ]
+                },
+                "dueDate": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "progress",
+                "status",
+                "dueDate"
+              ]
+            }
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "dueDate": {
+                  "type": "string"
+                },
+                "priority": {
+                  "type": "string",
+                  "enum": [
+                    "high",
+                    "medium",
+                    "low"
+                  ]
+                },
+                "completed": {
+                  "type": "boolean"
+                },
+                "projectId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "dueDate",
+                "priority",
+                "completed",
+                "projectId"
+              ]
+            }
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "startTime": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "date"
+              ]
+            }
+          },
+          "metrics": {
+            "type": "object",
+            "properties": {
+              "totalProjects": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "totalProjects"
+            ]
+          },
+          "sources": {
+            "type": "object",
+            "properties": {
+              "projects": {
+                "type": "string",
+                "enum": [
+                  "available",
+                  "unavailable"
+                ]
+              },
+              "tasks": {
+                "type": "string",
+                "enum": [
+                  "available",
+                  "unavailable"
+                ]
+              },
+              "calendar": {
+                "type": "string",
+                "enum": [
+                  "available",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "projects",
+              "tasks",
+              "calendar"
+            ]
+          }
+        },
+        "required": [
+          "userFirstName",
+          "projects",
+          "tasks",
+          "events",
+          "metrics",
+          "sources"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "Connectivity"
+        ],
+        "summary": "Vérifie la santé du BFF",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/check_apis": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Services disponibles"
+          },
+          "502": {
+            "description": "Service indisponible"
+          }
+        }
+      }
+    },
+    "/dashboard/bootstrap": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Données des mêmes BFF que les pages métier, dans le périmètre de la session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardBootstrap"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session invalide"
+          },
+          "502": {
+            "description": "Contexte utilisateur indisponible"
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}
