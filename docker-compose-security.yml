@@ -1,0 +1,347 @@
+# Stack de test de sécurité dynamique (DAST) ISOLÉE pour le BFF Dashboard.
+#
+#   ./security_test.sh            (local)
+#   docker compose -f docker-compose-security.yml up --build \
+#       --abort-on-container-exit --exit-code-from security-scan   (CI)
+#
+# security-scan (OWASP ZAP) importe /openapi.json, rejoue chaque opération avec
+# un JWT valide (replacer) et sort en échec sur toute alerte WARN/FAIL non
+# neutralisée dans .zap/rules.tsv (les alertes informatives y sont passées à IGNORE).
+#
+# Le Dashboard agrège trois BFFs métier : la stack monte toute la chaîne amont
+# réelle (User / Project / Calendar + leurs APIs) + base partagée + redis.
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  backend:
+
+x-db-env: &db-env
+  DB_TYPE: postgres
+  DB_NAME: mairie_360_database
+  DB_USER: postgres
+  DB_PASSWORD: password
+  DB_HOST: postgres
+  DB_PORT: 5432
+
+x-api-env: &api-env
+  <<: *db-env
+  HOST: "0.0.0.0"
+  REDIS_URL: redis://redis:6379
+  JWT_SECRET: secret
+  JWT_TIMEOUT: 3600
+
+services:
+  postgres:
+    image: ${DB_IMAGE:-ghcr.io/mairie360/database:1.0.0}
+    container_name: bff-dashboard-sec-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mairie_360_database
+    expose:
+      - "5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  liquibase:
+    image: ${LIQUIBASE_IMAGE:-ghcr.io/mairie360/liquibase-migrations:1.0.0}
+    container_name: bff-dashboard-sec-liquibase
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/mairie_360_database
+      LIQUIBASE_COMMAND_USERNAME: postgres
+      LIQUIBASE_COMMAND_PASSWORD: password
+      LIQUIBASE_SEARCH_PATH: /migrations
+    command: >
+      --changelog-file=changelog.xml
+      update
+    networks:
+      - backend
+
+  seeder:
+    image: postgres:18-alpine
+    container_name: bff-dashboard-sec-seeder
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+    volumes:
+      - ./init-test.sql:/init-test.sql:ro
+    environment:
+      PGPASSWORD: password
+    command: >
+      sh -c "psql -h postgres -U postgres -d mairie_360_database -f /init-test.sql"
+    networks:
+      - backend
+
+  redis:
+    image: redis:8.4.0-bookworm
+    container_name: bff-dashboard-sec-redis
+    expose:
+      - "6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  core-api:
+    image: ${CORE_API_IMAGE:-ghcr.io/mairie360/core-api:dev-4048375}
+    container_name: bff-dashboard-sec-core-api
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *api-env
+      PORT: 3000
+      PUBLIC_URL: http://core-api:3000
+    expose:
+      - "3000"
+    networks:
+      - backend
+
+  core-api-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-sec-core-api-ready
+    depends_on:
+      core-api:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://core-api:3000/health >/dev/null; do
+      echo "waiting for core-api..."; sleep 2; done; echo "core-api ready"'
+    networks:
+      - backend
+
+  project-api:
+    image: ${PROJECT_API_IMAGE:-ghcr.io/mairie360/project-api:dev-89c9730}
+    container_name: bff-dashboard-sec-project-api
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *api-env
+      PORT: 3001
+      PUBLIC_URL: http://project-api:3001
+    expose:
+      - "3001"
+    networks:
+      - backend
+
+  project-api-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-sec-project-api-ready
+    depends_on:
+      project-api:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://project-api:3001/health >/dev/null; do
+      echo "waiting for project-api..."; sleep 2; done; echo "project-api ready"'
+    networks:
+      - backend
+
+  calendar-api:
+    image: ${CALENDAR_API_IMAGE:-ghcr.io/mairie360/calendar-api:dev-d6d05a0}
+    container_name: bff-dashboard-sec-calendar-api
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *api-env
+      PORT: 3002
+      PUBLIC_URL: http://calendar-api:3002
+    expose:
+      - "3002"
+    networks:
+      - backend
+
+  calendar-api-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-sec-calendar-api-ready
+    depends_on:
+      calendar-api:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://calendar-api:3002/health >/dev/null; do
+      echo "waiting for calendar-api..."; sleep 2; done; echo "calendar-api ready"'
+    networks:
+      - backend
+
+  bff-user:
+    image: ${BFF_USER_IMAGE:-ghcr.io/mairie360/bff-user:dev-latest}
+    container_name: bff-dashboard-sec-bff-user
+    depends_on:
+      seeder:
+        condition: service_completed_successfully
+      core-api-ready:
+        condition: service_completed_successfully
+    environment:
+      <<: *db-env
+      HOST: "0.0.0.0"
+      PORT: 4000
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: secret
+      CORE_API_URL: http://core-api:3000
+    expose:
+      - "4000"
+    networks:
+      - backend
+
+  bff-user-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-sec-bff-user-ready
+    depends_on:
+      bff-user:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://bff-user:4000/health >/dev/null; do
+      echo "waiting for bff-user..."; sleep 2; done; echo "bff-user ready"'
+    networks:
+      - backend
+
+  bff-project:
+    image: ${BFF_PROJECT_IMAGE:-ghcr.io/mairie360/bff-project:dev-latest}
+    container_name: bff-dashboard-sec-bff-project
+    depends_on:
+      seeder:
+        condition: service_completed_successfully
+      project-api-ready:
+        condition: service_completed_successfully
+      core-api-ready:
+        condition: service_completed_successfully
+      bff-user-ready:
+        condition: service_completed_successfully
+    environment:
+      <<: *db-env
+      HOST: "0.0.0.0"
+      PORT: 4001
+      REDIS_URL: redis://redis:6379
+      CORE_API_URL: http://core-api:3000
+      PROJECT_API_BASE_PATH: http://project-api:3001
+      USER_BFF_URL: http://bff-user:4000
+    expose:
+      - "4001"
+    networks:
+      - backend
+
+  bff-project-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-sec-bff-project-ready
+    depends_on:
+      bff-project:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://bff-project:4001/health >/dev/null; do
+      echo "waiting for bff-project..."; sleep 2; done; echo "bff-project ready"'
+    networks:
+      - backend
+
+  bff-calendar:
+    image: ${BFF_CALENDAR_IMAGE:-ghcr.io/mairie360/bff-calendar:dev-latest}
+    container_name: bff-dashboard-sec-bff-calendar
+    depends_on:
+      seeder:
+        condition: service_completed_successfully
+      calendar-api-ready:
+        condition: service_completed_successfully
+      core-api-ready:
+        condition: service_completed_successfully
+    environment:
+      <<: *db-env
+      HOST: "0.0.0.0"
+      PORT: 4002
+      REDIS_URL: redis://redis:6379
+      CORE_API_URL: http://core-api:3000
+      CALENDAR_API_BASE_PATH: http://calendar-api:3002/api
+    expose:
+      - "4002"
+    networks:
+      - backend
+
+  bff-calendar-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-sec-bff-calendar-ready
+    depends_on:
+      bff-calendar:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://bff-calendar:4002/health >/dev/null; do
+      echo "waiting for bff-calendar..."; sleep 2; done; echo "bff-calendar ready"'
+    networks:
+      - backend
+
+  bff-dashboard:
+    image: ${TARGET_IMAGE:-bff-dashboard:security}
+    container_name: bff-dashboard-sec-bff
+    build:
+      context: .
+    depends_on:
+      bff-user-ready:
+        condition: service_completed_successfully
+      bff-project-ready:
+        condition: service_completed_successfully
+      bff-calendar-ready:
+        condition: service_completed_successfully
+    environment:
+      PORT: 4007
+      USER_BFF_URL: http://bff-user:4000
+      PROJECT_BFF_URL: http://bff-project:4001
+      CALENDAR_BFF_URL: http://bff-calendar:4002
+      CORE_API_URL: http://core-api:3000
+      PROJECT_API_URL: http://project-api:3001
+    expose:
+      - "4007"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4007/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  security-scan:
+    image: zaproxy/zap-stable
+    container_name: bff-dashboard-sec-zap
+    depends_on:
+      bff-dashboard:
+        condition: service_healthy
+    volumes:
+      - ./.zap/rules.tsv:/zap/wrk/rules.tsv:ro
+    # -c rules.tsv : les alertes informatives sont passées à IGNORE, toute autre
+    #   alerte (WARN/FAIL) fait sortir zap-api-scan.py en code != 0.
+    # -z ... replacer : injecte un JWT HS256 statique (sub=2, role=user, exp=2100,
+    #   signé avec JWT_SECRET=secret) sur chaque requête pour scanner la route
+    #   authentifiée /dashboard/bootstrap.
+    command:
+      - zap-api-scan.py
+      - -t
+      - http://bff-dashboard:4007/openapi.json
+      - -f
+      - openapi
+      - -c
+      - rules.tsv
+      - -z
+      - "-config replacer.full_list(0).description=auth -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Authorization -config replacer.full_list(0).regex=false -config replacer.full_list(0).replacement=Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwicm9sZSI6InVzZXIiLCJleHAiOjQxMDI0NDQ4MDB9.DQJie1tBPk6azqAcT8pEictcr77MqedlMOhOkPrK-FE"
+    networks:
+      - backend
