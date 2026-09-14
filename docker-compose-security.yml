@@ -101,7 +101,7 @@ services:
       retries: 5
 
   core-api:
-    image: ${CORE_API_IMAGE:-ghcr.io/mairie360/core-api:dev-4048375}
+    image: ${CORE_API_IMAGE:-ghcr.io/mairie360/core-api:1.1.1}
     container_name: bff-dashboard-sec-core-api
     depends_on:
       liquibase:
@@ -130,7 +130,7 @@ services:
       - backend
 
   project-api:
-    image: ${PROJECT_API_IMAGE:-ghcr.io/mairie360/project-api:dev-89c9730}
+    image: ${PROJECT_API_IMAGE:-ghcr.io/mairie360/project-api:0.4.1}
     container_name: bff-dashboard-sec-project-api
     depends_on:
       liquibase:
@@ -159,7 +159,7 @@ services:
       - backend
 
   calendar-api:
-    image: ${CALENDAR_API_IMAGE:-ghcr.io/mairie360/calendar-api:dev-d6d05a0}
+    image: ${CALENDAR_API_IMAGE:-ghcr.io/mairie360/calendar-api:0.5.1}
     container_name: bff-dashboard-sec-calendar-api
     depends_on:
       liquibase:
@@ -188,7 +188,7 @@ services:
       - backend
 
   bff-user:
-    image: ${BFF_USER_IMAGE:-ghcr.io/mairie360/bff-user:dev-latest}
+    image: ${BFF_USER_IMAGE:-ghcr.io/mairie360/bff-user:0.3.0}
     container_name: bff-dashboard-sec-bff-user
     depends_on:
       seeder:
@@ -206,6 +206,12 @@ services:
       - "4000"
     networks:
       - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
 
   bff-user-ready:
     image: curlimages/curl:latest
@@ -220,7 +226,7 @@ services:
       - backend
 
   bff-project:
-    image: ${BFF_PROJECT_IMAGE:-ghcr.io/mairie360/bff-project:dev-latest}
+    image: ${BFF_PROJECT_IMAGE:-ghcr.io/mairie360/bff-project:0.3.0}
     container_name: bff-dashboard-sec-bff-project
     depends_on:
       seeder:
@@ -257,7 +263,7 @@ services:
       - backend
 
   bff-calendar:
-    image: ${BFF_CALENDAR_IMAGE:-ghcr.io/mairie360/bff-calendar:dev-latest}
+    image: ${BFF_CALENDAR_IMAGE:-ghcr.io/mairie360/bff-calendar:0.3.0}
     container_name: bff-dashboard-sec-bff-calendar
     depends_on:
       seeder:
@@ -325,6 +331,8 @@ services:
     container_name: bff-dashboard-sec-zap
     depends_on:
       bff-dashboard:
+        condition: service_healthy
+      bff-user:
         condition: service_healthy
     volumes:
       - ./.zap/rules.tsv:/zap/wrk/rules.tsv:ro
