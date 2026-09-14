@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "BFF Dashboard API",
+    "title": "bff_dashboard",
     "version": "1.0.0"
   },
   "components": {
