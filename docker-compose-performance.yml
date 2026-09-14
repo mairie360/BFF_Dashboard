@@ -9,7 +9,8 @@
 #
 # Le Dashboard n'appelle pas d'API directement : il agrège trois BFFs métier
 # (User / Project / Calendar). La stack monte donc toute la chaîne amont réelle
-# + la base partagée + redis, seedée par init-test.sql.
+# + la base partagée + redis, seedée par init-test.sql. NODE_AUTH_TOKEN doit
+# être exporté pour le build local (lecture des packages @mairie360/*).
 
 volumes:
   postgres-data:
@@ -17,6 +18,12 @@ volumes:
 
 networks:
   backend:
+
+secrets:
+  npmrc:
+    file: ./.npmrc
+  node_auth_token:
+    environment: NODE_AUTH_TOKEN
 
 x-db-env: &db-env
   DB_TYPE: postgres
@@ -36,7 +43,7 @@ x-api-env: &api-env
 
 services:
   postgres:
-    image: ${DB_IMAGE:-ghcr.io/mairie360/database:1.0.0}
+    image: ${DB_IMAGE:-ghcr.io/mairie360/database:1.1.0}
     container_name: bff-dashboard-perf-db
     environment:
       POSTGRES_USER: postgres
@@ -55,7 +62,7 @@ services:
       retries: 10
 
   liquibase:
-    image: ${LIQUIBASE_IMAGE:-ghcr.io/mairie360/liquibase-migrations:1.0.0}
+    image: ${LIQUIBASE_IMAGE:-ghcr.io/mairie360/liquibase-migrations:1.1.0}
     container_name: bff-dashboard-perf-liquibase
     depends_on:
       postgres:
@@ -194,7 +201,7 @@ services:
   # --- BFFs métier en amont (images dev publiées par leur propre pipeline). ---
 
   bff-user:
-    image: ${BFF_USER_IMAGE:-ghcr.io/mairie360/bff-user:0.3.0}
+    image: ${BFF_USER_IMAGE:-ghcr.io/mairie360/bff-user:0.4.0}
     container_name: bff-dashboard-perf-bff-user
     depends_on:
       seeder:
@@ -309,6 +316,11 @@ services:
     container_name: bff-dashboard-perf-bff
     build:
       context: .
+      dockerfile: development.Dockerfile
+      secrets:
+        - npmrc
+        - node_auth_token
+    command: ["npx", "ts-node", "src/index.ts"]
     depends_on:
       bff-user-ready:
         condition: service_completed_successfully

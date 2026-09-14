@@ -10,6 +10,8 @@
 #
 # Le Dashboard agrège trois BFFs métier : la stack monte toute la chaîne amont
 # réelle (User / Project / Calendar + leurs APIs) + base partagée + redis.
+# NODE_AUTH_TOKEN doit être exporté pour le build local (lecture des packages
+# @mairie360/*).
 
 volumes:
   postgres-data:
@@ -17,6 +19,12 @@ volumes:
 
 networks:
   backend:
+
+secrets:
+  npmrc:
+    file: ./.npmrc
+  node_auth_token:
+    environment: NODE_AUTH_TOKEN
 
 x-db-env: &db-env
   DB_TYPE: postgres
@@ -35,7 +43,7 @@ x-api-env: &api-env
 
 services:
   postgres:
-    image: ${DB_IMAGE:-ghcr.io/mairie360/database:1.0.0}
+    image: ${DB_IMAGE:-ghcr.io/mairie360/database:1.1.0}
     container_name: bff-dashboard-sec-db
     environment:
       POSTGRES_USER: postgres
@@ -54,7 +62,7 @@ services:
       retries: 10
 
   liquibase:
-    image: ${LIQUIBASE_IMAGE:-ghcr.io/mairie360/liquibase-migrations:1.0.0}
+    image: ${LIQUIBASE_IMAGE:-ghcr.io/mairie360/liquibase-migrations:1.1.0}
     container_name: bff-dashboard-sec-liquibase
     depends_on:
       postgres:
@@ -188,7 +196,7 @@ services:
       - backend
 
   bff-user:
-    image: ${BFF_USER_IMAGE:-ghcr.io/mairie360/bff-user:0.3.0}
+    image: ${BFF_USER_IMAGE:-ghcr.io/mairie360/bff-user:0.4.0}
     container_name: bff-dashboard-sec-bff-user
     depends_on:
       seeder:
@@ -301,6 +309,11 @@ services:
     container_name: bff-dashboard-sec-bff
     build:
       context: .
+      dockerfile: development.Dockerfile
+      secrets:
+        - npmrc
+        - node_auth_token
+    command: ["npx", "ts-node", "src/index.ts"]
     depends_on:
       bff-user-ready:
         condition: service_completed_successfully
@@ -341,6 +354,11 @@ services:
     # -z ... replacer : injecte un JWT HS256 statique (sub=2, role=user, exp=2100,
     #   signé avec JWT_SECRET=secret) sur chaque requête pour scanner la route
     #   authentifiée /dashboard/bootstrap.
+    # -silent : pas de check-for-update ni de télémétrie au démarrage du démon ZAP
+    #   (sinon il peut rester bloqué sur la mise à jour des add-ons et le scan
+    #   échoue avec "Failed to connect to ZAP after 600 seconds").
+    # -z est découpé par shlex : la valeur 'Bearer <jwt>' doit rester entre quotes,
+    #   sinon le token est passé à ZAP comme un fichier et le démon ne démarre pas.
     command:
       - zap-api-scan.py
       - -t
@@ -350,6 +368,6 @@ services:
       - -c
       - rules.tsv
       - -z
-      - "-config replacer.full_list(0).description=auth -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Authorization -config replacer.full_list(0).regex=false -config replacer.full_list(0).replacement=Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwicm9sZSI6InVzZXIiLCJleHAiOjQxMDI0NDQ4MDB9.DQJie1tBPk6azqAcT8pEictcr77MqedlMOhOkPrK-FE"
+      - "-silent -config replacer.full_list(0).description=auth -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Authorization -config replacer.full_list(0).regex=false -config replacer.full_list(0).replacement='Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwicm9sZSI6InVzZXIiLCJleHAiOjQxMDI0NDQ4MDB9.DQJie1tBPk6azqAcT8pEictcr77MqedlMOhOkPrK-FE'"
     networks:
       - backend
