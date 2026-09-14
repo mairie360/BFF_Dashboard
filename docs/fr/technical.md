@@ -16,7 +16,7 @@ L’aperçu est limité et ne remplace pas les listes complètes des modules. Un
 
 ## Installation et lancement local
 
-Utiliser Node.js 22 pour reproduire le job de contrats et npm avec le fichier de verrouillage versionné. Les versions des autres jobs et de Docker sont précisées plus bas.
+Utiliser Node.js 24 pour reproduire le job de contrats et npm avec le fichier de verrouillage versionné. Les versions des autres jobs et de Docker sont précisées plus bas.
 
 Les dépendances directes actuelles ne comprennent pas de client privé `@mairie360/*`. `.npmrc` conserve néanmoins la configuration du registre de cette organisation.
 
@@ -89,11 +89,11 @@ Le générateur de types est fixé à `openapi-typescript@7.10.1` dans `scripts/
 
 ## CI/CD et exécution Docker
 
-Le job `contracts.yml` utilise Node.js 22, `actions/checkout@v7` et `actions/setup-node@v7`. Il s’exécute sur push, pull request et lancement manuel; il installe avec `npm ci`, contrôle les contrats et lance les tests dédiés.
+Le job `contracts.yml` utilise Node.js 24, `actions/checkout@v7` et `actions/setup-node@v7`. Il s’exécute sur push, pull request et lancement manuel; il installe avec `npm ci`, contrôle les contrats et lance les tests dédiés.
 
-Le fichier `cicd.yml` est un modèle entièrement commenté: il ne lance pas la chaîne partagée. Le workflow de contrats est actif. Ne pas déduire un déploiement automatique de la simple présence de ce fichier.
+`cicd.yml` appelle `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v2.3.0`, avec `cicd_version: v2.3.0`, `node_version: "22"` et `openapi_spec_path: contracts/openapi.json`. Les étapes réutilisables et les environnements GitHub déterminent les contrôles, publications et déploiements effectifs; les versions sont calculées par semantic-release (`.releaserc.json`).
 
-Le Dockerfile utilise encore `node:20-alpine` pour la construction et l’exécution; la commande de l’image est `["node", "dist/index.js"]`. Cette version est distincte du job de contrats Node.js 22.
+Le Dockerfile utilise `node:24-alpine` pour la construction et l’exécution; la commande de l’image est `["node", "dist/index.js"]`. Les identifiants GitHub Packages ne sont montés qu’en secrets de build (`npmrc`, `node_auth_token`) pendant `npm ci`. `development.Dockerfile` installe toutes les dépendances et lance `npm run start`; les stacks isolées de sécurité et de performance le construisent.
 
 Avant un lancement Docker, vérifier les variables de service, les secrets de build et les réseaux dans les fichiers du dépôt. Une CI verte valide ses jobs; elle ne prouve pas la disponibilité des services métier dans un environnement distant.
 

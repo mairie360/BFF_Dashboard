@@ -12,7 +12,7 @@ business mutations** — it only adapts upstream data and enforces session rules
 ## Commands
 
 ```bash
-npm ci                      # install (use Node.js 22 to match the contracts CI job)
+npm ci                      # install (use Node.js 24 to match the contracts CI job)
 npm run start               # dev server via ts-node (src/index.ts), default port 4007
 npm run build               # tsc -> dist/
 npm run lint                # eslint . --ext .ts   (lint:fix to autofix)
@@ -81,16 +81,17 @@ than inventing data. Output is capped at 6 projects / 8 tasks / 6 events.
   legacy and ignored. `@typescript-eslint/no-explicit-any` is an **error**.
 - User-facing error messages in code are in **French**; keep that consistent.
 - **Docs are bilingual:** any change to `docs/en/*.md` must be mirrored in `docs/fr/*.md`.
-- CI: `contracts.yml` (Node 22: `contracts:check` + tests) and `cicd.yml` (shared
-  `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v1.14.0` — lint / audits / build / test / release
+- CI: `contracts.yml` (Node 24: `contracts:check` + tests) and `cicd.yml` (shared
+  `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v2.3.0` — lint / audits / build / test / release
   dev→staging→prod, plus `security_tests` / `performance_tests` which run `./security_test.sh` /
   `./performance_test.sh` at repo root). Keep the `@vX.Y.Z` ref and `cicd_version:` input in sync.
-- Dockerfiles use `node:20-alpine`; this is intentionally separate from the Node 22 CI job.
+- Dockerfiles use `node:24-alpine`; npm credentials only enter through BuildKit secrets
+  (`npmrc`, `node_auth_token`). The test stacks build `development.Dockerfile` and run `ts-node`.
 - `.npmrc` points `@mairie360:*` at GitHub Packages and needs `NODE_AUTH_TOKEN` (there are no
   private `@mairie360` deps right now, but `npm ci` in CI still passes the token).
 - **Known stale bits** (don't rely on them): `npm run contracts:sync` is referenced in `CONTRACT.md`
   / docs but is not defined in `package.json`, and `scripts/contracts.mjs --sync` has a hardcoded
-  `source = null` so it throws. The `openapi:generate` script points at a nonexistent `openapi.yaml`.
+  `source = null` so it throws.
 - `src/routes/check_apis.ts` probes services named `CORE_API` / `PROJECT_API` (via `CORE_API_URL`
   etc.), which don't match the `USER_BFF` / `PROJECT_BFF` / `CALENDAR_BFF` names used everywhere
   else or `.env.example` — treat `/check_apis` as an incomplete diagnostic.

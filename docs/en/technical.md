@@ -16,7 +16,7 @@ The overview is limited and does not replace complete module listings. Unavailab
 
 ## Installation and local startup
 
-Use Node.js 22 to reproduce the contract job and npm with the committed lockfile. Other job and Docker versions are detailed below.
+Use Node.js 24 to reproduce the contract job and npm with the committed lockfile. Other job and Docker versions are detailed below.
 
 Current direct dependencies include no private `@mairie360/*` client. `.npmrc` still retains the organization’s registry configuration.
 
@@ -89,11 +89,11 @@ The type generator is pinned to `openapi-typescript@7.10.1` in `scripts/contract
 
 ## CI/CD and Docker execution
 
-The `contracts.yml` job uses Node.js 22, `actions/checkout@v7` and `actions/setup-node@v7`. It runs on pushes, pull requests and manual dispatch; it installs with `npm ci`, checks contracts and runs the associated tests.
+The `contracts.yml` job uses Node.js 24, `actions/checkout@v7` and `actions/setup-node@v7`. It runs on pushes, pull requests and manual dispatch; it installs with `npm ci`, checks contracts and runs the associated tests.
 
-The `cicd.yml` file is an entirely commented template: it does not run the shared pipeline. The contract workflow is active. The presence of the template does not imply automatic deployment.
+`cicd.yml` calls `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v2.3.0`, with `cicd_version: v2.3.0`, `node_version: "22"` and `openapi_spec_path: contracts/openapi.json`. Reusable steps and GitHub environments determine actual checks, publications and deployments; releases are computed by semantic-release (`.releaserc.json`).
 
-The Dockerfile currently uses `node:20-alpine` for build and runtime; the image command is `["node", "dist/index.js"]`. That version is separate from the Node.js 22 contract job.
+The Dockerfile uses `node:24-alpine` for build and runtime; the image command is `["node", "dist/index.js"]`. GitHub Packages credentials are only mounted as build secrets (`npmrc`, `node_auth_token`) during `npm ci`. `development.Dockerfile` installs all dependencies and runs `npm run start`; the isolated security and performance stacks build it.
 
 Before running Docker, check service variables, build secrets and networks in the repository files. Green CI validates its jobs; it does not prove business-service availability in a remote environment.
 
