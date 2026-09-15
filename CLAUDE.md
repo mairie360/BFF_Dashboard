@@ -75,6 +75,21 @@ and `CALENDAR_BFF /calendar/bootstrap?from=&to=` (next 30 days) → per-project 
 degrades that section to `sources.<x> = "unavailable"` and `metrics.totalProjects = null` rather
 than inventing data. Output is capped at 6 projects / 8 tasks / 6 events.
 
+## Tests with contract-driven upstream mocks
+
+`tests/dashboard.upstream-mocks.test.ts` serves BFF User / Project / Calendar from real local HTTP
+servers (`tests/support/contract-mock-server.ts`). Their contracts are rebuilt at test time from the
+**installed** `@mairie360/bff-user-openapi`, `bff-project-openapi`, `bff-calendar-openapi` devDependencies
+(`tests/support/orval-contract.ts` parses the orval `endpoints/*.ts` + `model/*.ts` with the TypeScript
+compiler API; the packages ship no `openapi.json`). Keep their versions aligned with the upstream images of
+the perf/security stacks and bump them to test against a new upstream contract. Each mock rejects paths,
+methods and query parameters absent from the upstream contract and validates mocked success responses.
+Orval does not type error statuses: every mocked error reply needs `outOfContract: true`. Dashboard 200
+responses are validated against the current `contracts/openapi.json` **and** the last published
+`@mairie360/bff-dashboard-openapi` (compatibility for consumers).
+`tests/support/openapi-contract.ts`, `contract-mock-server.ts` and `orval-contract.ts` are shared verbatim
+with `BFF_Calendar`; keep the copies identical.
+
 ## Conventions & gotchas
 
 - **ESLint:** `eslint.config.cjs` (flat config, ESLint 9) is the active one; `.eslintrc.js` is
@@ -87,8 +102,8 @@ than inventing data. Output is capped at 6 projects / 8 tasks / 6 events.
   `./performance_test.sh` at repo root). Keep the `@vX.Y.Z` ref and `cicd_version:` input in sync.
 - Dockerfiles use `node:24-alpine`; npm credentials only enter through BuildKit secrets
   (`npmrc`, `node_auth_token`). The test stacks build `development.Dockerfile` and run `ts-node`.
-- `.npmrc` points `@mairie360:*` at GitHub Packages and needs `NODE_AUTH_TOKEN` (there are no
-  private `@mairie360` deps right now, but `npm ci` in CI still passes the token).
+- `.npmrc` points `@mairie360:*` at GitHub Packages and needs `NODE_AUTH_TOKEN`: the
+  `@mairie360/bff-*-openapi` devDependencies used by the tests are private.
 - **Known stale bits** (don't rely on them): `npm run contracts:sync` is referenced in `CONTRACT.md`
   / docs but is not defined in `package.json`, and `scripts/contracts.mjs --sync` has a hardcoded
   `source = null` so it throws.

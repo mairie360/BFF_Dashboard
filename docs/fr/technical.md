@@ -6,7 +6,7 @@
 
 Serveur Express 5.1.0 écrit en TypeScript. Les schémas Zod et leur registre OpenAPI décrivent les objets échangés; les routeurs adaptent les services amont aux besoins des interfaces.
 
-Après la résolution de l’identité, les sources Project et Calendar sont interrogées en parallèle. Les détails des projets alimentent les tâches non terminées. Les événements sont triés par date et heure. `sources` distingue une liste vide d’une source indisponible; `metrics.totalProjects` vaut `null` si le résumé Project manque.
+Après la résolution de l’identité, les sources Project et Calendar sont interrogées en parallèle. Les détails des projets alimentent les tâches non terminées. Les événements sont triés par date et heure (les dates `YYYY-MM-DD` et `DD-MM-YYYY` sont ordonnées chronologiquement); un événement inexploitable, par exemple sans `id`, est ignoré sans rendre le calendrier indisponible. `sources` distingue une liste vide d’une source indisponible; `metrics.totalProjects` vaut `null` si le résumé Project manque.
 
 ## Données et persistance
 
@@ -67,11 +67,11 @@ Inventaire extrait de `contracts/openapi.json`. Les paramètres entre accolades 
 | --- | --- | --- | --- |
 | GET | `/health` | — | 200 |
 | GET | `/check_apis` | — | 200, 502 |
-| GET | `/dashboard/bootstrap` | — | 200, 401, 502 |
+| GET | `/dashboard/bootstrap` | — | 200, 401, 502, 503 |
 
 ## Session, permissions et erreurs
 
-Le Bearer est transmis aux trois BFF. L’échec du contexte utilisateur bloque le bootstrap. Les appels initiaux Project et Calendar peuvent dégrader leur section; un refus 401 de ces appels est propagé. Les clients ont un délai de 10 secondes.
+Le Bearer est transmis aux trois BFF. L’échec du contexte utilisateur bloque le bootstrap. Les appels initiaux Project et Calendar peuvent dégrader leur section; un refus 401 de ces appels ou d’un détail de projet est propagé. Les statuts 4xx amont sont conservés, les 5xx amont deviennent 502 et une URL amont manquante renvoie 503. Les clients ont un délai de 10 secondes.
 
 ## Synchronisation et vérifications
 
