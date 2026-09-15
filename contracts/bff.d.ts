@@ -117,6 +117,13 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description Service amont non configuré */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         put?: never;

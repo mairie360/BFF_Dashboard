@@ -35,7 +35,8 @@ export async function upstream(req: Request, service: string, path: string, init
 
 export async function json<T>(req: Request, service: string, path: string, init: RequestInit = {}): Promise<T> {
   const response = await upstream(req, service, path, init);
-  if (!response.ok) throw new UpstreamError(response.status, `Le service ${service} a répondu ${response.status}.`);
+  // Les 4xx amont sont conservés ; une panne amont (5xx) devient 502 côté BFF.
+  if (!response.ok) throw new UpstreamError(response.status >= 500 ? 502 : response.status, `Le service ${service} a répondu ${response.status}.`);
   if (response.status === 204) return undefined as T;
   try { return await response.json() as T; }
   catch { throw new UpstreamError(502, `La réponse de ${service} est invalide.`); }

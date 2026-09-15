@@ -6,7 +6,7 @@
 
 Express 5.1.0 server written in TypeScript. Zod schemas and their OpenAPI registry describe exchanged objects; routers adapt upstream services to interface needs.
 
-After identity resolution, Project and Calendar sources are queried in parallel. Project details supply unfinished tasks. Events are sorted by date and time. `sources` distinguishes an empty list from an unavailable source; `metrics.totalProjects` is `null` when the Project summary is missing.
+After identity resolution, Project and Calendar sources are queried in parallel. Project details supply unfinished tasks. Events are sorted by date and time (`YYYY-MM-DD` and `DD-MM-YYYY` dates are both ordered chronologically); an event the dashboard cannot use, such as one without an `id`, is skipped without making the calendar unavailable. `sources` distinguishes an empty list from an unavailable source; `metrics.totalProjects` is `null` when the Project summary is missing.
 
 ## Data and persistence
 
@@ -67,11 +67,11 @@ Inventory extracted from `contracts/openapi.json`. Replace brace parameters with
 | --- | --- | --- | --- |
 | GET | `/health` | — | 200 |
 | GET | `/check_apis` | — | 200, 502 |
-| GET | `/dashboard/bootstrap` | — | 200, 401, 502 |
+| GET | `/dashboard/bootstrap` | — | 200, 401, 502, 503 |
 
 ## Session, permissions and errors
 
-The Bearer token is forwarded to all three BFFs. User-context failure blocks bootstrap. Initial Project and Calendar calls can degrade their respective sections; a 401 rejection from those calls is propagated. Clients use a 10-second timeout.
+The Bearer token is forwarded to all three BFFs. User-context failure blocks bootstrap. Initial Project and Calendar calls can degrade their respective sections; a 401 rejection from those calls or from a project detail is propagated. Upstream 4xx statuses are kept, upstream 5xx become 502, and a missing upstream URL returns 503. Clients use a 10-second timeout.
 
 ## Synchronization and verification
 
