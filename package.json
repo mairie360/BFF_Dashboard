@@ -20,6 +20,10 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@mairie360/bff-calendar-openapi": "0.3.0",
+    "@mairie360/bff-dashboard-openapi": "1.0.0",
+    "@mairie360/bff-project-openapi": "0.3.0",
+    "@mairie360/bff-user-openapi": "0.4.0",
     "@types/express": "5.0.6",
     "@types/jest": "30.0.0",
     "@types/node": "^22.0.0",
