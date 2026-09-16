@@ -2,17 +2,18 @@
   "name": "bff-dashboard",
   "version": "1.0.0",
   "scripts": {
-    "start": "ts-node src/index.ts",
-    "build": "tsc",
+    "start": "tsx watch src/index.ts",
+    "build": "tsc --noEmit && node scripts/build.mjs",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
-    "openapi:extract": "ts-node scripts/export-swagger.ts",
+    "openapi:extract": "tsx scripts/export-swagger.ts",
     "test": "jest",
     "contracts:generate": "npm run openapi:extract && node scripts/contracts.mjs --generate",
     "contracts:check": "npm run openapi:extract -- --check && node scripts/contracts.mjs --check"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "8.5.0",
+    "axios": "1.20.0",
     "dotenv": "17.4.2",
     "express": "5.2.1",
     "helmet": "8.3.0",
@@ -20,6 +21,10 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@mairie360/bff-calendar-openapi": "0.3.0",
+    "@mairie360/bff-dashboard-openapi": "1.0.0",
+    "@mairie360/bff-project-openapi": "0.3.0",
+    "@mairie360/bff-user-openapi": "0.4.0",
     "@types/express": "5.0.6",
     "@types/jest": "30.0.0",
     "@types/node": "^22.0.0",
@@ -27,11 +32,12 @@
     "@types/swagger-ui-express": "4.1.8",
     "@typescript-eslint/eslint-plugin": "8.70.0",
     "@typescript-eslint/parser": "8.70.0",
+    "esbuild": "0.28.2",
     "eslint": "9.39.5",
     "jest": "30.5.1",
     "supertest": "7.2.2",
     "ts-jest": "29.4.12",
-    "ts-node": "10.9.2",
+    "tsx": "4.23.13",
     "typescript": "5.9.3",
     "typescript-eslint": "8.70.0"
   }

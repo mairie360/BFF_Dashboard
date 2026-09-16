@@ -224,6 +224,9 @@
           },
           "502": {
             "description": "Contexte utilisateur indisponible"
+          },
+          "503": {
+            "description": "Service amont non configuré"
           }
         }
       }
