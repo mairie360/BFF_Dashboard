@@ -112,7 +112,7 @@ services:
   #     la disponibilité est sondée par les sidecars *-ready ci-dessous). ---
 
   core-api:
-    image: ${CORE_API_IMAGE:-ghcr.io/mairie360/core-api:1.1.1}
+    image: ${CORE_API_IMAGE:-ghcr.io/mairie360/core-api:1.2.0}
     container_name: bff-dashboard-perf-core-api
     depends_on:
       liquibase:
