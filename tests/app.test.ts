@@ -32,7 +32,8 @@ describe('application fallbacks', () => {
 describe('GET /check_apis', () => {
   let healthy: http.Server;
   let healthyUrl: string;
-  const saved = { core: process.env.CORE_API_URL, project: process.env.PROJECT_API_URL };
+  const services = ['USER_BFF_URL', 'PROJECT_BFF_URL', 'CALENDAR_BFF_URL'] as const;
+  const saved = Object.fromEntries(services.map((name) => [name, process.env[name]]));
 
   beforeAll(async () => {
     healthy = http.createServer((req, res) => {
@@ -45,29 +46,33 @@ describe('GET /check_apis', () => {
     await new Promise((resolve) => healthy.close(resolve));
   });
   afterEach(() => {
-    for (const [key, value] of [['CORE_API_URL', saved.core], ['PROJECT_API_URL', saved.project]] as const) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
+    for (const name of services) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
     }
   });
 
   test('answers 200 when every service health check succeeds', async () => {
-    process.env.CORE_API_URL = healthyUrl;
-    process.env.PROJECT_API_URL = healthyUrl;
+    for (const name of services) process.env[name] = healthyUrl;
 
     const response = await request(app).get('/check_apis');
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ status: 'OK', core_api: 'Connected', project_api: 'Connected' });
+    expect(response.body).toEqual({
+      status: 'OK', user_bff: 'Connected', project_bff: 'Connected', calendar_bff: 'Connected',
+    });
   });
 
   test('answers 502 when a service is not configured or not healthy', async () => {
-    process.env.CORE_API_URL = `${healthyUrl}/down`;
-    delete process.env.PROJECT_API_URL;
+    process.env.USER_BFF_URL = healthyUrl;
+    process.env.PROJECT_BFF_URL = `${healthyUrl}/down`;
+    delete process.env.CALENDAR_BFF_URL;
 
     const response = await request(app).get('/check_apis');
 
     expect(response.status).toBe(502);
-    expect(response.body).toEqual({ status: 'Error', core_api: 'Unreachable', project_api: 'Unreachable' });
+    expect(response.body).toEqual({
+      status: 'Error', user_bff: 'Connected', project_bff: 'Unreachable', calendar_bff: 'Unreachable',
+    });
   });
 });

@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { registry } from '../openapi-registry';
-import { authorization, json, routeError, UpstreamError } from '../clients/upstream';
+import { asCaller, callUpstream, calendarBff, projectBff, userBff } from '../clients/upstreams';
+import { authorization, routeError, UpstreamError } from '../clients/upstream';
 
 const router = Router();
 const Project = z.object({
@@ -26,12 +27,13 @@ registry.registerPath({ method: 'get', path: '/dashboard/bootstrap', responses: 
 router.get('/bootstrap', async (req, res) => {
   try {
     authorization(req);
-    const user = await json<{ user: { first_name: string } }>(req, 'USER_BFF', '/me');
+    const user = await callUpstream('USER_BFF', () => userBff.getMe(asCaller(req, 'USER_BFF')));
     const from = new Date().toISOString().slice(0, 10);
     const to = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
     const [projectsResult, calendarResult] = await Promise.allSettled([
-      json<unknown>(req, 'PROJECT_BFF', '/projects-page?page=1&limit=6'),
-      json<unknown>(req, 'CALENDAR_BFF', `/calendar/bootstrap?from=${from}&to=${to}`),
+      callUpstream('PROJECT_BFF', () => projectBff.getProjectsPage({ page: 1, limit: 6 }, asCaller(req, 'PROJECT_BFF'))),
+      // from et to sont lus par BFF Calendar mais pas encore déclarés par son contrat publié.
+      callUpstream('CALENDAR_BFF', () => calendarBff.getCalendarBootstrap({ ...asCaller(req, 'CALENDAR_BFF'), params: { from, to } })),
     ]);
     for (const result of [projectsResult, calendarResult]) {
       if (result.status === 'rejected' && result.reason instanceof UpstreamError && result.reason.status === 401) throw result.reason;
@@ -44,7 +46,8 @@ router.get('/bootstrap', async (req, res) => {
       : undefined;
     const projects = projectsPage?.success ? projectsPage.data.projects : [];
     const taskResults = await Promise.allSettled(projects.map(async (project) => {
-      const details = await json<unknown>(req, 'PROJECT_BFF', `/projects/${encodeURIComponent(project.id)}`);
+      // Le client généré insère le paramètre tel quel : l'identifiant est encodé ici.
+      const details = await callUpstream('PROJECT_BFF', () => projectBff.getProjectsProjectId(encodeURIComponent(project.id), asCaller(req, 'PROJECT_BFF')));
       return z.object({ taskItems: z.array(Task) }).parse(details).taskItems
         .filter((task) => !task.completed).map((task) => ({ ...task, projectId: project.id }));
     }));
