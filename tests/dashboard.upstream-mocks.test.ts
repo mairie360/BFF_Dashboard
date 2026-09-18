@@ -4,21 +4,28 @@ import app from '../src/app';
 import { ContractMockServer, unreachableUrl } from './support/contract-mock-server';
 import { OpenApiContract } from './support/openapi-contract';
 import { loadOrvalContract } from './support/orval-contract';
+import type { CalendarEvent } from '@mairie360/bff-calendar-openapi/model';
+import type { ProjectListItem, ProjectTask } from '@mairie360/bff-project-openapi/model';
 import {
-  calendarBootstrapResponse, calendarEvent, projectApiError, projectDetailsResponse, projectListItem,
-  projectsPageResponse, sessionResponse, taskItem, type ProjectItem, type TaskItem,
+  calendarBffUrls, calendarBootstrapResponse, calendarEvent, projectApiError, projectBffUrls, projectDetailsResponse, projectListItem,
+  projectsPageResponse, sessionResponse, taskItem, userBffUrls,
 } from './support/upstream-fixtures';
 
 // /dashboard/bootstrap testé contre de vrais serveurs HTTP simulant BFF User, BFF Project et
 // BFF Calendar. Leurs contrats sont reconstruits depuis les paquets @mairie360/bff-*-openapi installés
 // (versions épinglées dans package.json) : chaque mock refuse les routes et paramètres absents du
 // contrat amont et valide ses réponses de succès. Les erreurs ne sont pas typées par orval : toute
-// réponse d'erreur simulée est marquée `outOfContract`.
+// réponse d'erreur simulée est marquée `outOfContract`. Les corps simulés sont typés par les modèles générés et les
+// chemins attendus viennent des helpers d'URL des clients générés.
 
 const userBff = new ContractMockServer('USER_BFF', loadOrvalContract('@mairie360/bff-user-openapi'));
 const projectBff = new ContractMockServer('PROJECT_BFF', loadOrvalContract('@mairie360/bff-project-openapi'));
 const calendarBff = new ContractMockServer('CALENDAR_BFF', loadOrvalContract('@mairie360/bff-calendar-openapi'));
 const mocks = [userBff, projectBff, calendarBff];
+// Gabarits des contrats amont (clés des mocks) ; les chemins concrets attendus viennent des helpers d'URL.
+const USER_BFF = { me: '/me' } as const;
+const PROJECT_BFF = { page: '/projects-page', project: '/projects/{projectId}' } as const;
+const CALENDAR_BFF = { bootstrap: '/calendar/bootstrap' } as const;
 // Contrat courant du dashboard (statuts documentés) et dernier contrat publié, consommé par les clients.
 const dashboardContract = OpenApiContract.load(path.join(__dirname, '..', 'contracts', 'openapi.json'));
 const publishedDashboardContract = loadOrvalContract('@mairie360/bff-dashboard-openapi');
@@ -39,17 +46,17 @@ afterEach(() => {
   expect(mocks.flatMap((mock) => mock.violations)).toEqual([]);
 });
 
-type Scenario = { projects?: ProjectItem[]; totalProjects?: number; tasks?: Record<string, TaskItem[]>; events?: unknown[] };
+type Scenario = { projects?: ProjectListItem[]; totalProjects?: number; tasks?: Record<string, ProjectTask[]>; events?: CalendarEvent[] };
 function mockUpstreams({ projects = [], totalProjects, tasks = {}, events = [] }: Scenario = {}) {
-  userBff.on('get', '/me', { body: sessionResponse() });
-  projectBff.on('get', '/projects-page', { body: projectsPageResponse(projects, totalProjects) });
-  projectBff.on('get', '/projects/{projectId}', ({ pathParams }) => {
+  userBff.on('get', USER_BFF.me, { body: sessionResponse() });
+  projectBff.on('get', PROJECT_BFF.page, { body: projectsPageResponse(projects, totalProjects) });
+  projectBff.on('get', PROJECT_BFF.project, ({ pathParams }) => {
     const project = projects.find((candidate) => candidate.id === pathParams.projectId);
     return project
       ? { body: projectDetailsResponse(project, tasks[project.id] ?? []) }
       : { status: 404, body: projectApiError('NOT_FOUND', 'Projet introuvable'), outOfContract: true };
   });
-  calendarBff.on('get', '/calendar/bootstrap', { body: calendarBootstrapResponse(events) });
+  calendarBff.on('get', CALENDAR_BFF.bootstrap, { body: calendarBootstrapResponse(events) });
 }
 
 const bootstrap = (authorization: string | null = SESSION) => {
@@ -103,20 +110,21 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       await bootstrap();
 
-      expect(userBff.requests.map((call) => call.template)).toEqual(['/me']);
-      expect(projectBff.requests.map((call) => call.template).sort()).toEqual(['/projects-page', '/projects/{projectId}']);
-      expect(calendarBff.requests.map((call) => call.template)).toEqual(['/calendar/bootstrap']);
+      expect(userBff.requests.map((call) => call.url.pathname)).toEqual([userBffUrls.getGetMeUrl()]);
+      expect(projectBff.requests.map((call) => call.url.pathname).sort())
+        .toEqual([projectBffUrls.getGetProjectsPageUrl(), projectBffUrls.getGetProjectsProjectIdUrl(project.id)].sort());
+      expect(calendarBff.requests.map((call) => call.url.pathname)).toEqual([calendarBffUrls.getGetCalendarBootstrapUrl()]);
       for (const call of mocks.flatMap((mock) => mock.requests)) {
         expect(call.method).toBe('GET');
         expect(call.headers.authorization).toBe(SESSION);
         expect(call.headers.accept).toBe('application/json');
       }
 
-      const [page] = projectBff.calls('/projects-page');
-      expect(Object.fromEntries(page.url.searchParams)).toEqual({ page: '1', limit: '6' });
+      const [page] = projectBff.calls(PROJECT_BFF.page);
+      expect(`${page.url.pathname}${page.url.search}`).toBe(projectBffUrls.getGetProjectsPageUrl({ page: 1, limit: 6 }));
       expect(page.undeclaredQuery).toEqual([]);
 
-      const [calendar] = calendarBff.calls('/calendar/bootstrap');
+      const [calendar] = calendarBff.calls(CALENDAR_BFF.bootstrap);
       const from = calendar.url.searchParams.get('from')!;
       const to = calendar.url.searchParams.get('to')!;
       expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -134,8 +142,9 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       const response = await bootstrap();
 
-      const [details] = projectBff.calls('/projects/{projectId}');
-      expect(details.url.pathname).toBe('/projects/projet%207%2F2026');
+      const [details] = projectBff.calls(PROJECT_BFF.project);
+      // Le dashboard encode l'identifiant avant de le passer au client généré, qui l'insère tel quel.
+      expect(details.url.pathname).toBe(projectBffUrls.getGetProjectsProjectIdUrl(encodeURIComponent('projet 7/2026')));
       expect(details.pathParams).toEqual({ projectId: 'projet 7/2026' });
       expect(response.body.tasks).toEqual([expect.objectContaining({ id: 'task-9', projectId: 'projet 7/2026' })]);
     });
@@ -150,7 +159,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      expect(projectBff.calls('/projects/{projectId}')).toHaveLength(3);
+      expect(projectBff.calls(PROJECT_BFF.project)).toHaveLength(3);
       expect(response.body.tasks.map((task: { id: string; projectId: string }) => `${task.projectId}:${task.id}`)).toEqual([
         'p1:p1-t0', 'p1:p1-t2', 'p1:p1-t4', 'p2:p2-t0', 'p2:p2-t2', 'p2:p2-t4', 'p3:p3-t0', 'p3:p3-t2',
       ]);
@@ -166,7 +175,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
         calendarEvent({ id: 'next-week', date: '2026-10-01', startTime: '10:00' }),
         calendarEvent({ id: 3, date: '2026-09-22', startTime: '09:00' }),
         calendarEvent({ id: 'last', date: '2026-10-10', startTime: '09:00' }),
-      ].map((event) => JSON.parse(JSON.stringify(event)) as unknown);
+      ].map((event) => JSON.parse(JSON.stringify(event)) as CalendarEvent);
       mockUpstreams({ events });
 
       const response = await bootstrap();
@@ -199,7 +208,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      expect(projectBff.calls('/projects/{projectId}')).toHaveLength(0);
+      expect(projectBff.calls(PROJECT_BFF.project)).toHaveLength(0);
       expect(response.body).toMatchObject({ projects: [], tasks: [], events: [], metrics: { totalProjects: 0 } });
       expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'available' });
     });
@@ -223,7 +232,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
     test('propagates a 401 from BFF User /me without calling the other BFFs', async () => {
       mockUpstreams();
-      userBff.on('get', '/me', { status: 401, body: { message: 'Invalid or missing session token' }, outOfContract: true });
+      userBff.on('get', USER_BFF.me, { status: 401, body: { message: 'Invalid or missing session token' }, outOfContract: true });
 
       const response = await bootstrap();
 
@@ -235,8 +244,8 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
     });
 
     test.each([
-      ['BFF Project', () => projectBff.on('get', '/projects-page', { status: 401, body: { error: { message: 'Session invalide' } }, outOfContract: true }), 'PROJECT_BFF'],
-      ['BFF Calendar', () => calendarBff.on('get', '/calendar/bootstrap', { status: 401, body: { code: 'UNAUTHORIZED', message: 'Session invalide.' }, outOfContract: true }), 'CALENDAR_BFF'],
+      ['BFF Project', () => projectBff.on('get', PROJECT_BFF.page, { status: 401, body: { error: { message: 'Session invalide' } }, outOfContract: true }), 'PROJECT_BFF'],
+      ['BFF Calendar', () => calendarBff.on('get', CALENDAR_BFF.bootstrap, { status: 401, body: { code: 'UNAUTHORIZED', message: 'Session invalide.' }, outOfContract: true }), 'CALENDAR_BFF'],
     ])('propagates a 401 from %s even when the other sources succeed', async (_label, override, service) => {
       mockUpstreams({ projects: [projectListItem()] });
       override();
@@ -262,7 +271,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
     test('returns 502 when BFF User answers a body that is not JSON', async () => {
       mockUpstreams();
-      userBff.on('get', '/me', { raw: '<html>proxy error</html>', outOfContract: true });
+      userBff.on('get', USER_BFF.me, { raw: '<html>proxy error</html>', outOfContract: true });
 
       const response = await bootstrap();
 
@@ -273,7 +282,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
     test('maps a BFF User server error to 502', async () => {
       mockUpstreams();
-      userBff.on('get', '/me', { status: 500, body: { error: 'boom' }, outOfContract: true });
+      userBff.on('get', USER_BFF.me, { status: 500, body: { error: 'boom' }, outOfContract: true });
 
       const response = await bootstrap();
 
@@ -313,7 +322,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
   describe('degraded sources', () => {
     test('a 500 from BFF Project /projects-page marks projects and tasks unavailable', async () => {
       mockUpstreams({ events: [calendarEvent()] });
-      projectBff.on('get', '/projects-page', { status: 500, body: projectApiError('INTERNAL_ERROR', 'Erreur serveur'), outOfContract: true });
+      projectBff.on('get', PROJECT_BFF.page, { status: 500, body: projectApiError('INTERNAL_ERROR', 'Erreur serveur'), outOfContract: true });
 
       const response = await bootstrap();
 
@@ -322,7 +331,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(response.body).toMatchObject({ projects: [], tasks: [], metrics: { totalProjects: null } });
       expect(response.body.events).toHaveLength(1);
       expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'unavailable', calendar: 'available' });
-      expect(projectBff.calls('/projects/{projectId}')).toHaveLength(0);
+      expect(projectBff.calls(PROJECT_BFF.project)).toHaveLength(0);
     });
 
     test.each([
@@ -331,7 +340,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
     ])('a %i from BFF Calendar /calendar/bootstrap marks only the calendar unavailable', async (status, body) => {
       const project = projectListItem();
       mockUpstreams({ projects: [project], tasks: { [project.id]: [taskItem()] } });
-      calendarBff.on('get', '/calendar/bootstrap', { status, body, outOfContract: true });
+      calendarBff.on('get', CALENDAR_BFF.bootstrap, { status, body, outOfContract: true });
 
       const response = await bootstrap();
 
@@ -358,7 +367,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       const kept = projectListItem({ id: 'kept' });
       const missing = projectListItem({ id: 'missing' });
       mockUpstreams({ projects: [kept, missing], tasks: { kept: [taskItem({ id: 'task-kept' })] } });
-      projectBff.on('get', '/projects/{projectId}', ({ pathParams }) => pathParams.projectId === 'kept'
+      projectBff.on('get', PROJECT_BFF.project, ({ pathParams }) => pathParams.projectId === 'kept'
         ? { body: projectDetailsResponse(kept, [taskItem({ id: 'task-kept' })]) }
         : { status: 404, body: projectApiError('NOT_FOUND', 'Projet introuvable'), outOfContract: true });
 
@@ -374,7 +383,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
     test('propagates a 401 from a BFF Project detail like the initial calls', async () => {
       const project = projectListItem();
       mockUpstreams({ projects: [project] });
-      projectBff.on('get', '/projects/{projectId}', { status: 401, body: { error: { message: 'Session invalide' } }, outOfContract: true });
+      projectBff.on('get', PROJECT_BFF.project, { status: 401, body: { error: { message: 'Session invalide' } }, outOfContract: true });
 
       const response = await bootstrap();
 
@@ -385,7 +394,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
     test('a payload rejected by the dashboard parser degrades the section without inventing data', async () => {
       mockUpstreams();
-      projectBff.on('get', '/projects-page', { body: { projects: [{ id: 42 }] }, outOfContract: true });
+      projectBff.on('get', PROJECT_BFF.page, { body: { projects: [{ id: 42 }] }, outOfContract: true });
 
       const response = await bootstrap();
 
@@ -397,7 +406,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
     test('skips a contract-valid calendar event without id but keeps the calendar available', async () => {
       // CalendarEvent.id est optionnel dans le contrat BFF Calendar, mais le dashboard l'expose comme requis.
-      const withoutId: Record<string, unknown> = calendarEvent({ title: 'Sans identifiant' });
+      const withoutId = calendarEvent({ title: 'Sans identifiant' });
       delete withoutId.id;
       mockUpstreams({ events: [calendarEvent({ id: 1 }), withoutId] });
 
@@ -411,7 +420,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
     test('a calendar payload whose events field is not a list marks the calendar unavailable', async () => {
       mockUpstreams();
-      calendarBff.on('get', '/calendar/bootstrap', { body: { events: 'none' }, outOfContract: true });
+      calendarBff.on('get', CALENDAR_BFF.bootstrap, { body: { events: 'none' }, outOfContract: true });
 
       const response = await bootstrap();
 

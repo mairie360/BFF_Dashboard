@@ -43,7 +43,7 @@ x-api-env: &api-env
 
 services:
   postgres:
-    image: ${DB_IMAGE:-ghcr.io/mairie360/database:1.1.0}
+    image: ${DB_IMAGE:-ghcr.io/mairie360/database:1.3.0}
     container_name: bff-dashboard-perf-db
     environment:
       POSTGRES_USER: postgres
@@ -62,7 +62,7 @@ services:
       retries: 10
 
   liquibase:
-    image: ${LIQUIBASE_IMAGE:-ghcr.io/mairie360/liquibase-migrations:1.1.0}
+    image: ${LIQUIBASE_IMAGE:-ghcr.io/mairie360/liquibase-migrations:1.3.0}
     container_name: bff-dashboard-perf-liquibase
     depends_on:
       postgres:
@@ -112,7 +112,7 @@ services:
   #     la disponibilité est sondée par les sidecars *-ready ci-dessous). ---
 
   core-api:
-    image: ${CORE_API_IMAGE:-ghcr.io/mairie360/core-api:1.1.1}
+    image: ${CORE_API_IMAGE:-ghcr.io/mairie360/core-api:1.2.0}
     container_name: bff-dashboard-perf-core-api
     depends_on:
       liquibase:
@@ -141,7 +141,7 @@ services:
       - backend
 
   project-api:
-    image: ${PROJECT_API_IMAGE:-ghcr.io/mairie360/project-api:0.4.1}
+    image: ${PROJECT_API_IMAGE:-ghcr.io/mairie360/project-api:0.5.1}
     container_name: bff-dashboard-perf-project-api
     depends_on:
       liquibase:
@@ -170,7 +170,7 @@ services:
       - backend
 
   calendar-api:
-    image: ${CALENDAR_API_IMAGE:-ghcr.io/mairie360/calendar-api:0.5.1}
+    image: ${CALENDAR_API_IMAGE:-ghcr.io/mairie360/calendar-api:0.6.1}
     container_name: bff-dashboard-perf-calendar-api
     depends_on:
       liquibase:
@@ -291,6 +291,7 @@ services:
       PORT: 4002
       REDIS_URL: redis://redis:6379
       CORE_API_URL: http://core-api:3000
+      # bff-calendar 0.3.0 (image publiée) attend encore le suffixe /api ; à retirer quand l'image passera sur calendar-api-openapi >= 0.6.
       CALENDAR_API_BASE_PATH: http://calendar-api:3002/api
     expose:
       - "4002"
