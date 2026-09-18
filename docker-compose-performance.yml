@@ -321,7 +321,7 @@ services:
       secrets:
         - npmrc
         - node_auth_token
-    command: ["npx", "ts-node", "src/index.ts"]
+    command: ["npx", "tsx", "src/index.ts"]
     depends_on:
       bff-user-ready:
         condition: service_completed_successfully
