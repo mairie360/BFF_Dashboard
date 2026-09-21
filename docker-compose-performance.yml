@@ -276,7 +276,7 @@ services:
       - backend
 
   bff-calendar:
-    image: ${BFF_CALENDAR_IMAGE:-ghcr.io/mairie360/bff-calendar:0.3.0}
+    image: ${BFF_CALENDAR_IMAGE:-ghcr.io/mairie360/bff-calendar:0.4.0}
     container_name: bff-dashboard-perf-bff-calendar
     depends_on:
       seeder:
