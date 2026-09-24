@@ -1,16 +1,19 @@
-# Stack de test de performance ISOLÉE pour le BFF Dashboard.
+# Isolated performance test stack for the BFF Dashboard.
 #
-#   ./performance_test.sh          (local)
-#   docker compose -f docker-compose-performance.yml up --build \
-#       --abort-on-container-exit --exit-code-from k6-perf-test   (CI)
+#   ./performance_test.sh                 (local)
+#   IMAGE_REF=<image> ./performance_test.sh   (CI: the image published by release-dev)
 #
-# k6-perf-test sort en échec si un seuil de load-test.js est dépassé.
-# TARGET_IMAGE (optionnel) : image BFF pré-construite à tester au lieu du build local.
+# The BFF under test is never built by this file: it runs the image named by
+# IMAGE_REF, which the CI sets to the dev image built once by release-dev and
+# then promoted to staging and prod. When IMAGE_REF is empty, the script builds
+# bff-dashboard:local from development.Dockerfile first (NODE_AUTH_TOKEN and ./.npmrc
+# are needed to read the @mairie360/* packages).
 #
-# Le Dashboard n'appelle pas d'API directement : il agrège trois BFFs métier
-# (User / Project / Calendar). La stack monte donc toute la chaîne amont réelle
-# + la base partagée + redis, seedée par init-test.sql. NODE_AUTH_TOKEN doit
-# être exporté pour le build local (lecture des packages @mairie360/*).
+# k6-perf-test fails when a threshold of load-test.js is exceeded.
+#
+# The Dashboard calls no API directly: it aggregates three business BFFs
+# (User / Project / Calendar), so the stack brings up the whole real upstream
+# chain + the shared database + redis, seeded by init-test.sql.
 
 volumes:
   postgres-data:
@@ -18,12 +21,6 @@ volumes:
 
 networks:
   backend:
-
-secrets:
-  npmrc:
-    file: ./.npmrc
-  node_auth_token:
-    environment: NODE_AUTH_TOKEN
 
 x-db-env: &db-env
   DB_TYPE: postgres
@@ -313,15 +310,8 @@ services:
   # --- BFF sous test ---
 
   bff-dashboard:
-    image: ${TARGET_IMAGE:-bff-dashboard:perf}
+    image: ${IMAGE_REF:-bff-dashboard:local}
     container_name: bff-dashboard-perf-bff
-    build:
-      context: .
-      dockerfile: development.Dockerfile
-      secrets:
-        - npmrc
-        - node_auth_token
-    command: ["npx", "tsx", "src/index.ts"]
     depends_on:
       bff-user-ready:
         condition: service_completed_successfully
