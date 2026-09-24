@@ -1,41 +1,33 @@
-import http from 'k6/http';
-import { check, sleep, group } from 'k6';
+import { check, sleep } from 'k6';
 import crypto from 'k6/crypto';
 import encoding from 'k6/encoding';
+import { createCoverage } from '/coverage.js';
 
 // ---------------------------------------------------------------------------
-// Test de charge k6 pour le BFF Dashboard.
-// Cible les routes réellement servies par le BFF : /health et /check_apis
-// (sans auth) et l'agrégation /dashboard/bootstrap (avec un JWT HS256 signé
-// comme le fait Core API). /dashboard/bootstrap fane out sur les trois BFFs
-// métier (User, Project, Calendar) puis sur le détail de chaque projet.
+// k6 load test of the BFF Dashboard.
+//
+// Every operation of the contract (contracts/openapi.json, mounted as /openapi.json) has one
+// handler below: the shared OpenAPI coverage module (mairie360/CICD tests/k6/coverage.js, see
+// performance_test.sh) aborts at init when an operation has no handler, and fails the
+// `operations_uncovered` threshold when a handler ends without sending its request. Adding a route
+// to the BFF therefore means adding its handler here.
+//
+// The BFF only exposes reads (/health, /check_apis and the /dashboard/bootstrap aggregation, which
+// fans out to BFF User, BFF Project and BFF Calendar), so a single `reads` scenario (ramp to 20
+// VUs) runs every handler through `coverage.run()` and carries the gate. Every operation gets a
+// p(95) threshold, whose budget depends on its family (`budgetOf`).
 // ---------------------------------------------------------------------------
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:4007';
 // Must match the JWT_SECRET of the services of the test stack.
 const JWT_SECRET = __ENV.JWT_SECRET || 'b"secret"';
-// Utilisateur inséré par init-test.sql (claim sub du token).
+// User seeded by init-test.sql (sub claim of the token).
 const USER_ID = __ENV.PERF_USER_ID || '2';
-
-export const options = {
-  stages: [
-    { duration: '30s', target: 20 }, // montée en charge
-    { duration: '1m', target: 20 },  // maintien
-    { duration: '10s', target: 0 },  // descente
-  ],
-  thresholds: {
-    http_req_failed: ['rate<0.01'],                         // < 1% d'erreurs
-    'http_req_duration{endpoint:health}': ['p(95)<50'],     // sonde process
-    'http_req_duration{endpoint:check_apis}': ['p(95)<200'],
-    'http_req_duration{endpoint:dashboard}': ['p(95)<1000'], // agrégation BFF + 3 upstreams
-  },
-};
 
 function b64url(value) {
   return encoding.b64encode(value, 'rawurl');
 }
 
-// JWT HS256 minimal accepté par Core API (claims sub + role + exp).
+// Minimal HS256 JWT accepted by Core API (sub + role + exp claims).
 function mintJwt() {
   const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const now = Math.floor(Date.now() / 1000);
@@ -45,29 +37,16 @@ function mintJwt() {
   return `${signingInput}.${signature}`;
 }
 
-export function setup() {
-  return { token: mintJwt() };
-}
+const coverage = createCoverage({
+  // --- Connectivity (public) ---
+  'GET /health': ({ request }) =>
+    check(request(), { 'health 200': (r) => r.status === 200 }),
+  'GET /check_apis': ({ request }) =>
+    check(request(), { 'check_apis 200': (r) => r.status === 200 }),
 
-export default function (data) {
-  const authParams = {
-    headers: { Authorization: `Bearer ${data.token}` },
-    tags: { endpoint: 'dashboard' },
-  };
-
-  group('health', () => {
-    const res = http.get(`${BASE_URL}/health`, { tags: { endpoint: 'health' } });
-    check(res, { 'health 200': (r) => r.status === 200 });
-  });
-
-  group('check_apis', () => {
-    const res = http.get(`${BASE_URL}/check_apis`, { tags: { endpoint: 'check_apis' } });
-    check(res, { 'check_apis 200': (r) => r.status === 200 });
-  });
-
-  group('dashboard bootstrap', () => {
-    const res = http.get(`${BASE_URL}/dashboard/bootstrap`, authParams);
-    check(res, {
+  // --- Dashboard ---
+  'GET /dashboard/bootstrap': ({ request }) =>
+    check(request(), {
       'bootstrap 200': (r) => r.status === 200,
       'bootstrap payload': (r) => {
         try {
@@ -77,8 +56,45 @@ export default function (data) {
           return false;
         }
       },
-    });
-  });
+    }),
+});
 
+// p(95) budget of an operation, per family.
+function budgetOf({ op }) {
+  if (op === 'GET /health') return 50; // process probe
+  if (op === 'GET /check_apis') return 200; // -> the three upstream BFFs
+  return 1000; // aggregation: BFF + 3 upstream BFFs + project details
+}
+
+const perOperationThresholds = {};
+for (const operation of coverage.operations) {
+  perOperationThresholds[`http_req_duration{op:${operation.op}}`] = [`p(95)<${budgetOf(operation)}`];
+}
+
+export const options = {
+  scenarios: {
+    reads: {
+      executor: 'ramping-vus',
+      stages: [
+        { duration: '30s', target: 20 }, // ramp-up
+        { duration: '1m', target: 20 }, // steady load
+        { duration: '10s', target: 0 }, // ramp-down
+      ],
+    },
+  },
+  thresholds: {
+    ...coverage.thresholds,
+    ...perOperationThresholds,
+    http_req_failed: ['rate<0.01'], // < 1% errors
+    checks: ['rate>0.99'],
+  },
+};
+
+export function setup() {
+  return { token: mintJwt() };
+}
+
+export default function (data) {
+  coverage.run({ headers: { Authorization: `Bearer ${data.token}` } });
   sleep(1);
 }

@@ -91,14 +91,16 @@ responses are validated against the current `contracts/openapi.json` **and** the
 `tests/support/openapi-contract.ts`, `contract-mock-server.ts` and `orval-contract.ts` are shared verbatim
 with `BFF_Calendar`; keep the copies identical.
 
-## ZAP OpenAPI coverage gate
+## ZAP / k6 OpenAPI coverage gate
 
 `security_test.sh` / `performance_test.sh` clone `mairie360/CICD` into `cicd-repo/` (gitignored) at
 the pinned `cicd_version` (`CICD_VERSION=<branch>` overrides it). ZAP runs its `zap_hooks.py` with
 `--hook`: every operation of the served spec must be reached, and non-public ones with a
 non-401/403 answer. The spec requires `bearerAuth` at the top level (`openapi.ts`); `/health` and
-`/check_apis` set `security: []`. The k6 half (`coverage.js`, one handler per operation in
-`load-test.js`) is MAIR-196.
+`/check_apis` set `security: []`. `load-test.js` builds on `coverage.js` with **one handler per
+operation** of `contracts/openapi.json` (mounted by `docker-compose-performance.yml`): a new route
+without a handler makes k6 abort at init. Every operation is a read, so one `reads` scenario (ramp to
+20 VUs) runs `coverage.run()`; each operation gets a `p(95)` threshold from `budgetOf`.
 
 ## Conventions & gotchas
 
