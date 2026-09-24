@@ -1,17 +1,21 @@
-# Stack de test de sécurité dynamique (DAST) ISOLÉE pour le BFF Dashboard.
+# Isolated dynamic security test (DAST) stack for the BFF Dashboard.
 #
-#   ./security_test.sh            (local)
-#   docker compose -f docker-compose-security.yml up --build \
-#       --abort-on-container-exit --exit-code-from security-scan   (CI)
+#   ./security_test.sh                 (local)
+#   IMAGE_REF=<image> ./security_test.sh   (CI: the image published by release-dev)
 #
-# security-scan (OWASP ZAP) importe /openapi.json, rejoue chaque opération avec
-# un JWT valide (replacer) et sort en échec sur toute alerte WARN/FAIL non
-# neutralisée dans .zap/rules.tsv (les alertes informatives y sont passées à IGNORE).
+# The BFF under test is never built by this file: it runs the image named by
+# IMAGE_REF, which the CI sets to the dev image built once by release-dev and
+# then promoted to staging and prod. When IMAGE_REF is empty, the script builds
+# bff-dashboard:local from development.Dockerfile first (NODE_AUTH_TOKEN and ./.npmrc
+# are needed to read the @mairie360/* packages).
 #
-# Le Dashboard agrège trois BFFs métier : la stack monte toute la chaîne amont
-# réelle (User / Project / Calendar + leurs APIs) + base partagée + redis.
-# NODE_AUTH_TOKEN doit être exporté pour le build local (lecture des packages
-# @mairie360/*).
+# security-scan (OWASP ZAP) imports /openapi.json, replays every operation with
+# a valid JWT (replacer) and fails on any WARN/FAIL alert not neutralized in
+# .zap/rules.tsv (informational alerts are set to IGNORE there).
+#
+# The Dashboard calls no API directly: it aggregates three business BFFs
+# (User / Project / Calendar), so the stack brings up the whole real upstream
+# chain + the shared database + redis, seeded by init-test.sql.
 
 volumes:
   postgres-data:
@@ -19,12 +23,6 @@ volumes:
 
 networks:
   backend:
-
-secrets:
-  npmrc:
-    file: ./.npmrc
-  node_auth_token:
-    environment: NODE_AUTH_TOKEN
 
 x-db-env: &db-env
   DB_TYPE: postgres
@@ -306,15 +304,8 @@ services:
       - backend
 
   bff-dashboard:
-    image: ${TARGET_IMAGE:-bff-dashboard:security}
+    image: ${IMAGE_REF:-bff-dashboard:local}
     container_name: bff-dashboard-sec-bff
-    build:
-      context: .
-      dockerfile: development.Dockerfile
-      secrets:
-        - npmrc
-        - node_auth_token
-    command: ["npx", "tsx", "src/index.ts"]
     depends_on:
       bff-user-ready:
         condition: service_completed_successfully

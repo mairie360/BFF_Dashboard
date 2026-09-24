@@ -43,8 +43,9 @@ Isolated perf/security stacks (need Docker + GHCR pull access for the upstream i
 Each stack brings up the **full real upstream chain** — postgres + liquibase + seeder
 (`init-test.sql`, user id 2) + redis + core/project/calendar APIs + bff-user/bff-project/bff-calendar
 + this BFF — then runs k6 (`load-test.js`) or ZAP against `/dashboard/bootstrap`. Test JWTs are
-HS256 signed with `JWT_SECRET=secret`, `sub=2`. `TARGET_IMAGE` overrides the local build with a
-prebuilt image (CI passes the freshly pushed `dev-<sha>`).
+HS256 signed with `JWT_SECRET=secret`, `sub=2`. The BFF under test is never built by the compose files:
+they run `IMAGE_REF` (CI passes the image `release-dev` just pushed); with `IMAGE_REF` empty the scripts
+build `bff-dashboard:local` from `development.Dockerfile` first.
 
 ## Architecture
 
@@ -101,7 +102,7 @@ with `BFF_Calendar`; keep the copies identical.
   dev→staging→prod, plus `security_tests` / `performance_tests` which run `./security_test.sh` /
   `./performance_test.sh` at repo root). Keep the `@vX.Y.Z` ref and `cicd_version:` input in sync.
 - Dockerfiles use `node:24-alpine`; npm credentials only enter through BuildKit secrets
-  (`npmrc`, `node_auth_token`). The test stacks build `development.Dockerfile` and run `ts-node`.
+  (`npmrc`, `node_auth_token`). Locally, the test scripts build `development.Dockerfile` when `IMAGE_REF` is empty.
 - `.npmrc` points `@mairie360:*` at GitHub Packages and needs `NODE_AUTH_TOKEN`: the
   `@mairie360/bff-*-openapi` devDependencies used by the tests are private.
 - **Known stale bits** (don't rely on them): `npm run contracts:sync` is referenced in `CONTRACT.md`
