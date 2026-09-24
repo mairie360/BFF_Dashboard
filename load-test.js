@@ -12,8 +12,8 @@ import encoding from 'k6/encoding';
 // ---------------------------------------------------------------------------
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:4007';
-// Doit correspondre au JWT_SECRET des services de la stack de test.
-const JWT_SECRET = __ENV.JWT_SECRET || 'secret';
+// Must match the JWT_SECRET of the services of the test stack.
+const JWT_SECRET = __ENV.JWT_SECRET || 'b"secret"';
 // Utilisateur inséré par init-test.sql (claim sub du token).
 const USER_ID = __ENV.PERF_USER_ID || '2';
 
