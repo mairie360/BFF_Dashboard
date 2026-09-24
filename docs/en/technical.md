@@ -91,13 +91,15 @@ The type generator is pinned to `openapi-typescript@7.10.1` in `scripts/contract
 
 The `contracts.yml` job uses Node.js 24, `actions/checkout@v7` and `actions/setup-node@v7`. It runs on pushes, pull requests and manual dispatch; it installs with `npm ci`, checks contracts and runs the associated tests.
 
-`cicd.yml` calls `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v2.3.0`, with `cicd_version: v2.3.0`, `node_version: "22"` and `openapi_spec_path: contracts/openapi.json`. Reusable steps and GitHub environments determine actual checks, publications and deployments; releases are computed by semantic-release (`.releaserc.json`).
+`cicd.yml` calls `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v3.0.0`, with `cicd_version: v3.0.0`, `node_version: "22"` and `openapi_spec_path: contracts/openapi.json`. Reusable steps and GitHub environments determine actual checks, publications and deployments; releases are computed by semantic-release (`.releaserc.json`).
 
 The Dockerfile uses `node:24-alpine` for build and runtime; the image command is `["node", "dist/index.js"]`. GitHub Packages credentials are only mounted as build secrets (`npmrc`, `node_auth_token`) during `npm ci`. `development.Dockerfile` installs all dependencies and runs `npm run start`.
 
 `security_test.sh` and `performance_test.sh` test the image named by `IMAGE_REF`: in CI, the image `release-dev` has just published, the same artifact that is then promoted to staging and prod. When `IMAGE_REF` is empty (local use), they first build `bff-dashboard:local` from `development.Dockerfile`, which needs `NODE_AUTH_TOKEN` and `./.npmrc`.
 
 `security_test.sh` runs the OWASP ZAP stack of `docker-compose-security.yml`: ZAP replays every operation of `/openapi.json` with a static admin JWT (`sub=1`, HS256, `JWT_SECRET=b"secret"` in every service of the security and performance stacks); `init-test.sql` seeds users 1 (Admin) and 2 (User).
+
+The ZAP stack carries the OpenAPI coverage hook of `mairie360/CICD` (`tests/zap/zap_hooks.py`), checked out as `cicd-repo/` by the CI jobs and cloned there by `security_test.sh` / `performance_test.sh` at the pinned `cicd_version` (`CICD_VERSION` overrides it). After the scan, it fails when an operation of the contract was never reached, or when an operation that requires `bearerAuth` only got 401/403. Public operations (`/health`, `/check_apis`) declare `security: []` in their `registerPath`; a new route is authenticated by default. The k6 half of the gate (one `load-test.js` handler per operation) comes with MAIR-196.
 
 Before running Docker, check service variables, build secrets and networks in the repository files. Green CI validates its jobs; it does not prove business-service availability in a remote environment.
 

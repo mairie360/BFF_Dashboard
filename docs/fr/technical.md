@@ -91,13 +91,15 @@ Le générateur de types est fixé à `openapi-typescript@7.10.1` dans `scripts/
 
 Le job `contracts.yml` utilise Node.js 24, `actions/checkout@v7` et `actions/setup-node@v7`. Il s’exécute sur push, pull request et lancement manuel; il installe avec `npm ci`, contrôle les contrats et lance les tests dédiés.
 
-`cicd.yml` appelle `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v2.3.0`, avec `cicd_version: v2.3.0`, `node_version: "22"` et `openapi_spec_path: contracts/openapi.json`. Les étapes réutilisables et les environnements GitHub déterminent les contrôles, publications et déploiements effectifs; les versions sont calculées par semantic-release (`.releaserc.json`).
+`cicd.yml` appelle `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v3.0.0`, avec `cicd_version: v3.0.0`, `node_version: "22"` et `openapi_spec_path: contracts/openapi.json`. Les étapes réutilisables et les environnements GitHub déterminent les contrôles, publications et déploiements effectifs; les versions sont calculées par semantic-release (`.releaserc.json`).
 
 Le Dockerfile utilise `node:24-alpine` pour la construction et l’exécution; la commande de l’image est `["node", "dist/index.js"]`. Les identifiants GitHub Packages ne sont montés qu’en secrets de build (`npmrc`, `node_auth_token`) pendant `npm ci`. `development.Dockerfile` installe toutes les dépendances et lance `npm run start`.
 
 `security_test.sh` et `performance_test.sh` testent l’image désignée par `IMAGE_REF`: en CI, l’image que `release-dev` vient de publier, soit l’artefact ensuite promu en staging puis en prod. Quand `IMAGE_REF` est vide (usage local), ils construisent d’abord `bff-dashboard:local` depuis `development.Dockerfile`, ce qui demande `NODE_AUTH_TOKEN` et `./.npmrc`.
 
 `security_test.sh` lance la stack OWASP ZAP de `docker-compose-security.yml`: ZAP rejoue chaque opération de `/openapi.json` avec un JWT admin statique (`sub=1`, HS256, `JWT_SECRET=b"secret"` dans tous les services des stacks de sécurité et de performance); `init-test.sql` crée les utilisateurs 1 (Admin) et 2 (User).
+
+La stack ZAP porte le hook de couverture OpenAPI de `mairie360/CICD` (`tests/zap/zap_hooks.py`), extrait dans `cicd-repo/` par les jobs CI et cloné au même endroit par `security_test.sh` / `performance_test.sh` au `cicd_version` épinglé (`CICD_VERSION` le remplace). Après le scan, il échoue si une opération du contrat n’a jamais été atteinte, ou si une opération qui exige `bearerAuth` n’a reçu que des 401/403. Les opérations publiques (`/health`, `/check_apis`) déclarent `security: []` dans leur `registerPath` ; une nouvelle route est authentifiée par défaut. La moitié k6 de la gate (un handler `load-test.js` par opération) arrive avec MAIR-196.
 
 Avant un lancement Docker, vérifier les variables de service, les secrets de build et les réseaux dans les fichiers du dépôt. Une CI verte valide ses jobs; elle ne prouve pas la disponibilité des services métier dans un environnement distant.
 
