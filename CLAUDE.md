@@ -115,3 +115,7 @@ with `BFF_Calendar`; keep the copies identical.
 
 Copy `.env.example` to `.env`: `PORT` (default 4007), `USER_BFF_URL`, `PROJECT_BFF_URL`,
 `CALENDAR_BFF_URL`. Optional `*_BFF_PORT` counterparts.
+
+## Pull request reviewers
+
+Every PR requests a review from the whole team, minus its author: `CarolinHugo`, `LAURETbenjamin`, `MathTek` and `Quentintnrl` (`gh pr create … --reviewer CarolinHugo,LAURETbenjamin,MathTek`). `.github/CODEOWNERS` makes GitHub request them automatically as well.
