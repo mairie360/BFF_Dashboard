@@ -48,7 +48,7 @@ prebuilt image (CI passes the freshly pushed `dev-<sha>`).
 
 ## Architecture
 
-**Request entry:** `src/index.ts` → `src/app.ts`. `app.ts` mounts JSON + raw-multipart body parsers,
+**Request entry:** `src/index.ts` → `src/app.ts`. `app.ts` mounts helmet, the JSON body parser (no multipart parser: nothing reads a raw body),
 Swagger UI at `/docs`, the spec at `/openapi.json` and `/swagger.json`, and the three routers
 (`health`, `check_apis`, `dashboard`). `/dashboard/*` responses get `Cache-Control: no-store`.
 

@@ -21,6 +21,13 @@ describe('application fallbacks', () => {
     expect(response.body).toEqual({ error: { message: 'Invalid request' } });
   });
 
+  test('no raw multipart body parser buffers uploads in memory', () => {
+    const { router } = app as typeof app & { router: { stack: Array<{ name: string }> } };
+
+    expect(router.stack.map((layer) => layer.name)).not.toContain('rawParser');
+    expect(router.stack.map((layer) => layer.name)).toContain('jsonParser');
+  });
+
   test('serves the OpenAPI document', async () => {
     const response = await request(app).get('/openapi.json');
 

@@ -13,7 +13,6 @@ export const app = express();
 // servi en HTTP derrière le reverse proxy.
 app.use(helmet({ contentSecurityPolicy: { useDefaults: true, directives: { 'upgrade-insecure-requests': null } } }));
 app.use(express.json());
-app.use(express.raw({ type: 'multipart/form-data', limit: '20mb' }));
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
 app.get(['/openapi.json', '/swagger.json'], (_req, res) => res.json(openApiDocument));
 app.use('/health', healthRouter);
