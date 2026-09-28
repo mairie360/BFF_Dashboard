@@ -5,7 +5,7 @@ import { baseUrl } from '../clients/upstream';
 import { calendarBff, projectBff, userBff } from '../clients/upstreams';
 
 const router = Router();
-registry.registerPath({ method: 'get', path: '/check_apis', responses: { 200: { description: 'Services disponibles' }, 502: { description: 'Service indisponible' } } });
+registry.registerPath({ method: 'get', path: '/check_apis', security: [], responses: { 200: { description: 'Services disponibles' }, 502: { description: 'Service indisponible' } } });
 
 // Les trois BFF dont dépend le tableau de bord, sondés par l'opération /health de leur contrat.
 const services = [
