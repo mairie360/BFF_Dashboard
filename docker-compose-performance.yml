@@ -38,7 +38,7 @@ x-api-env: &api-env
   <<: *db-env
   HOST: "0.0.0.0"
   REDIS_URL: redis://redis:6379
-  JWT_SECRET: secret
+  JWT_SECRET: b"secret"
   JWT_TIMEOUT: 3600
 
 services:
@@ -213,7 +213,7 @@ services:
       HOST: "0.0.0.0"
       PORT: 4000
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: secret
+      JWT_SECRET: 'b"secret"'
       CORE_API_URL: http://core-api:3000
     expose:
       - "4000"
@@ -360,7 +360,7 @@ services:
       - ./load-test.js:/load-test.js:ro
     environment:
       BASE_URL: http://bff-dashboard:4007
-      JWT_SECRET: secret
+      JWT_SECRET: 'b"secret"'
       PERF_USER_ID: "2"
     command: ["run", "/load-test.js"]
     networks:

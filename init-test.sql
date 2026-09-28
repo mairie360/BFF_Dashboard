@@ -1,21 +1,31 @@
--- Seed minimal pour les tests isolés (performance / sécurité) du BFF Dashboard.
--- L'utilisateur 2 est celui référencé par les JWT de test (claim sub = "2") :
---   * load-test.js le signe dynamiquement,
---   * docker-compose-security.yml injecte un token statique via le replacer ZAP.
+-- Minimal seed for the isolated test stacks (performance / security) of BFF Dashboard.
+-- The test JWTs reference two users:
+--   * sub = "1": Admin role. docker-compose-security.yml injects a static token for it
+--     through the ZAP replacer, so every operation is scanned authenticated;
+--   * sub = "2": User role only. load-test.js signs a token for it on the fly.
 --
--- /dashboard/bootstrap ne renvoie une erreur (non-200) que si Core API refuse la
--- session : il suffit donc que l'utilisateur existe. Les listes projets / tâches /
--- événements peuvent rester vides (elles sont alors signalées comme "available"
--- mais sans contenu). Un seed plus riche peut être ajouté ici si l'on veut
--- exercer les chemins d'agrégation avec des données.
+-- /dashboard/bootstrap only answers an error when Core API refuses the session: the
+-- users only need to exist. The project / task / event lists may stay empty.
 
 INSERT INTO users (id, first_name, last_name, email, password, status)
-VALUES (2, 'Perf', 'Tester', 'perf-tester@mairie360.fr', 'dummy', 'active')
+VALUES
+    (1, 'Security', 'Admin', 'security-admin@mairie360.fr', 'dummy', 'active'),
+    (2, 'Perf', 'Tester', 'perf-tester@mairie360.fr', 'dummy', 'active')
 ON CONFLICT (id) DO NOTHING;
 
--- Core API >= 1.1.1 exige au moins un rôle sur l'utilisateur pour GET /user/me
--- (sinon panic "index out of bounds" côté Core). Le rôle "User" ne donne pas
--- l'accès admin.
+-- Core API >= 1.1.1 requires at least one role on the user for GET /user/me.
+-- Core returns a single role: user 1 must only hold Admin.
+DELETE FROM user_roles
+WHERE user_id = 1 AND role_id <> (SELECT id FROM roles WHERE lower(name) = 'admin');
+
+INSERT INTO user_roles (user_id, role_id)
+SELECT 1, r.id FROM roles r WHERE lower(r.name) = 'admin'
+ON CONFLICT DO NOTHING;
+
 INSERT INTO user_roles (user_id, role_id)
 SELECT 2, r.id FROM roles r WHERE lower(r.name) = 'user'
 ON CONFLICT DO NOTHING;
+
+-- Explicit ids do not advance the sequence: move it past them so that users created
+-- during the tests do not collide.
+SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT max(id) FROM users));
