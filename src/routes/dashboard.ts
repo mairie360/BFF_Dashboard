@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { registry } from '../openapi-registry';
+import { HttpError, parisDateWindow } from '@mairie360/bffs-lib';
+import { ErrorSchema, registry } from '../openapi-registry';
 import { asCaller, callUpstream, calendarBff, projectBff, userBff } from '../clients/upstreams';
-import { authorization, routeError, UpstreamError } from '../clients/upstream';
+import { authorization } from '../clients/upstream';
 
 const router = Router();
 const Project = z.object({
@@ -21,22 +22,23 @@ export const DashboardBootstrapSchema = registry.register('DashboardBootstrap', 
 }));
 registry.registerPath({ method: 'get', path: '/dashboard/bootstrap', responses: {
   200: { description: 'Données des mêmes BFF que les pages métier, dans le périmètre de la session', content: { 'application/json': { schema: DashboardBootstrapSchema } } },
-  401: { description: 'Session invalide' }, 502: { description: 'Contexte utilisateur indisponible' },
-  503: { description: 'Service amont non configuré' },
+  401: { description: 'Missing or invalid session, or session refused by an upstream BFF', content: { 'application/json': { schema: ErrorSchema } } },
+  502: { description: 'User context unavailable: BFF User unreachable, failed or answered an invalid body', content: { 'application/json': { schema: ErrorSchema } } },
+  503: { description: 'An upstream BFF is not configured', content: { 'application/json': { schema: ErrorSchema } } },
 } });
 router.get('/bootstrap', async (req, res) => {
   try {
     authorization(req);
     const user = await callUpstream('USER_BFF', () => userBff.getMe(asCaller(req, 'USER_BFF')));
-    const from = new Date().toISOString().slice(0, 10);
-    const to = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+    // Next 30 days on the Europe/Paris calendar: between 00:00 and 02:00 in Paris, the UTC day is still the day before.
+    const { from, to } = parisDateWindow(30);
     const [projectsResult, calendarResult] = await Promise.allSettled([
       callUpstream('PROJECT_BFF', () => projectBff.getProjectsPage({ page: 1, limit: 6 }, asCaller(req, 'PROJECT_BFF'))),
       // from et to sont lus par BFF Calendar mais pas encore déclarés par son contrat publié.
       callUpstream('CALENDAR_BFF', () => calendarBff.getCalendarBootstrap({ ...asCaller(req, 'CALENDAR_BFF'), params: { from, to } })),
     ]);
     for (const result of [projectsResult, calendarResult]) {
-      if (result.status === 'rejected' && result.reason instanceof UpstreamError && result.reason.status === 401) throw result.reason;
+      if (result.status === 'rejected' && result.reason instanceof HttpError && result.reason.status === 401) throw result.reason;
     }
     const projectsPage = projectsResult.status === 'fulfilled'
       ? z.object({ projects: z.array(Project), summary: z.object({ totalProjects: z.number() }) }).safeParse(projectsResult.value)
@@ -53,7 +55,7 @@ router.get('/bootstrap', async (req, res) => {
     }));
     // Comme pour les appels initiaux, une session refusée sur un détail de projet est propagée.
     for (const result of taskResults) {
-      if (result.status === 'rejected' && result.reason instanceof UpstreamError && result.reason.status === 401) throw result.reason;
+      if (result.status === 'rejected' && result.reason instanceof HttpError && result.reason.status === 401) throw result.reason;
     }
     // Les événements inexploitables (ex. sans id, optionnel dans le contrat Calendar) sont ignorés un par un.
     const events = calendar?.success
@@ -71,6 +73,9 @@ router.get('/bootstrap', async (req, res) => {
         calendar: calendar?.success ? 'available' : 'unavailable',
       },
     }));
-  } catch (error) { return routeError(res, error); }
+  } catch (error) {
+    // Anything that is not an HttpError (unusable upstream data) is an upstream failure, not a BFF bug.
+    throw error instanceof HttpError ? error : new HttpError(502, 'The dashboard data is unavailable.');
+  }
 });
 export default router;

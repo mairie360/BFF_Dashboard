@@ -13,7 +13,7 @@ Domaine fonctionnel: Tableau de bord.
 ## Fonctions disponibles
 
 - Accueil personnalisé à partir du prénom fourni par BFF User.
-- Aperçu de six projets, de huit tâches non terminées au maximum et de six événements sur les 30 prochains jours.
+- Aperçu de six projets, de huit tâches non terminées au maximum et de six événements sur les 30 prochains jours (calendrier Europe/Paris).
 - Indicateurs explicites de disponibilité des sources et compteur de projets nullable.
 
 ## Parcours type

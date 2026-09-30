@@ -71,7 +71,15 @@ Inventory extracted from `contracts/openapi.json`. Replace brace parameters with
 
 ## Session, permissions and errors
 
-The Bearer token is forwarded to all three BFFs. User-context failure blocks bootstrap. Initial Project and Calendar calls can degrade their respective sections; a 401 rejection from those calls or from a project detail is propagated. Upstream 4xx statuses are kept, upstream 5xx become 502, and a missing upstream URL returns 503. Clients use a 10-second timeout.
+The Bearer token is forwarded to all three BFFs. User-context failure blocks bootstrap. Initial Project and Calendar calls can degrade their respective sections; a 401 rejection from those calls or from a project detail is propagated. Only an upstream 401 is relayed (it is the only upstream status the contract declares); any other upstream status, a network failure or an unusable body becomes 502, and a missing upstream URL returns 503. Upstream bodies and messages are never relayed. Clients use a 10-second timeout.
+
+Every error answer, including unknown routes (404) and unparsable bodies (400), uses the envelope shared by all BFFs (`@mairie360/bffs-lib`), declared as `ErrorResponse` in the contract:
+
+```json
+{ "error": { "code": "BAD_GATEWAY", "message": "Upstream service error", "details": [] } }
+```
+
+The 30-day calendar window (`from`/`to` sent to BFF Calendar) starts on today's date in `Europe/Paris`, not in UTC.
 
 ## Synchronization and verification
 

@@ -11,14 +11,14 @@ describe('application fallbacks', () => {
 
     expect(response.status).toBe(404);
     expect(response.headers['content-type']).toMatch(/application\/json/);
-    expect(response.body).toEqual({ error: { message: 'Not found' } });
+    expect(response.body).toEqual({ error: { code: 'NOT_FOUND', message: 'Route not found', details: [] } });
   });
 
   test('a malformed JSON body answers a JSON 400 without internal details', async () => {
     const response = await request(app).post('/dashboard/bootstrap').set('Content-Type', 'application/json').send('{"broken":');
 
     expect(response.status).toBe(400);
-    expect(response.body).toEqual({ error: { message: 'Invalid request' } });
+    expect(response.body).toEqual({ error: { code: 'BAD_REQUEST', message: 'Invalid request', details: [] } });
   });
 
   test('no raw multipart body parser buffers uploads in memory', () => {

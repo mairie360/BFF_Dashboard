@@ -71,7 +71,15 @@ Inventaire extrait de `contracts/openapi.json`. Les paramètres entre accolades 
 
 ## Session, permissions et erreurs
 
-Le Bearer est transmis aux trois BFF. L’échec du contexte utilisateur bloque le bootstrap. Les appels initiaux Project et Calendar peuvent dégrader leur section; un refus 401 de ces appels ou d’un détail de projet est propagé. Les statuts 4xx amont sont conservés, les 5xx amont deviennent 502 et une URL amont manquante renvoie 503. Les clients ont un délai de 10 secondes.
+Le Bearer est transmis aux trois BFF. L’échec du contexte utilisateur bloque le bootstrap. Les appels initiaux Project et Calendar peuvent dégrader leur section; un refus 401 de ces appels ou d’un détail de projet est propagé. Seul un 401 amont est relayé (c’est le seul statut amont déclaré par le contrat) ; tout autre statut amont, une panne réseau ou un corps inexploitable devient 502, et une URL amont manquante renvoie 503. Les corps et messages amont ne sont jamais relayés. Les clients ont un délai de 10 secondes.
+
+Toutes les réponses d’erreur, y compris les routes inconnues (404) et les corps illisibles (400), utilisent l’enveloppe commune à tous les BFF (`@mairie360/bffs-lib`), déclarée comme `ErrorResponse` dans le contrat :
+
+```json
+{ "error": { "code": "BAD_GATEWAY", "message": "Upstream service error", "details": [] } }
+```
+
+La fenêtre de 30 jours du calendrier (`from`/`to` envoyés à BFF Calendar) commence à la date du jour en `Europe/Paris`, et non en UTC.
 
 ## Synchronisation et vérifications
 

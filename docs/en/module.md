@@ -13,7 +13,7 @@ Business domain: Dashboard.
 ## Available capabilities
 
 - Personalized welcome using the first name supplied by BFF User.
-- Overview of six projects, up to eight unfinished tasks and six events within the next 30 days.
+- Overview of six projects, up to eight unfinished tasks and six events within the next 30 days (Europe/Paris calendar).
 - Explicit source-availability indicators and a nullable project count.
 
 ## Typical workflow
