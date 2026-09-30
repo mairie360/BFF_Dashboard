@@ -103,26 +103,32 @@ export interface paths {
                         "application/json": components["schemas"]["DashboardBootstrap"];
                     };
                 };
-                /** @description Session invalide */
+                /** @description Missing or invalid session, or session refused by an upstream BFF */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
                 };
-                /** @description Contexte utilisateur indisponible */
+                /** @description User context unavailable: BFF User unreachable, failed or answered an invalid body */
                 502: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
                 };
-                /** @description Service amont non configuré */
+                /** @description An upstream BFF is not configured */
                 503: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
                 };
             };
         };
@@ -138,6 +144,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ErrorResponse: {
+            error: {
+                /** @enum {string} */
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT" | "PAYLOAD_TOO_LARGE" | "UNPROCESSABLE_ENTITY" | "TOO_MANY_REQUESTS" | "INTERNAL_ERROR" | "BAD_GATEWAY" | "SERVICE_UNAVAILABLE" | "GATEWAY_TIMEOUT";
+                message: string;
+                details: {
+                    path?: string;
+                    message: string;
+                }[];
+            };
+        };
         DashboardBootstrap: {
             userFirstName: string;
             projects: {

@@ -55,13 +55,19 @@ Swagger UI at `/docs`, the spec at `/openapi.json` and `/swagger.json`, and the 
 
 **Upstream calls — `src/clients/upstream.ts`:** all outbound requests go through here.
 - `baseUrl(service)` resolves `process.env[`${service}_URL`]` (e.g. `USER_BFF_URL`), optionally
-  appending `${service}_PORT`. Missing config → `UpstreamError(503)`.
-- `authorization(req)` requires a `Bearer <token>` header (→ `UpstreamError(401)`); the same token
+  appending `${service}_PORT`. Missing config → `HttpError(503)`.
+- `authorization(req)` requires a `Bearer <token>` header (→ `HttpError(401)`); the same token
   is forwarded to every upstream BFF.
-- `json()` / `upstream()` wrap `fetch` with a 10s timeout, mapping network failure → 502,
-  non-2xx → the upstream status. `routeError(res, err)` renders `{ error: { message } }`.
-- `forward()` is a transparent proxy helper (method/body/headers/status passthrough) — currently
-  unused by the mounted routes but kept for future proxy routes.
+- `src/clients/upstreams.ts` wraps the generated `@mairie360/bff-*-openapi` clients (axios, 10s timeout).
+  `callUpstream()` keeps only an upstream 401 (the one upstream status the contract declares, through
+  `mapUpstreamError`); any other status, a network failure or a non-JSON body → 502. Upstream bodies are
+  never relayed.
+
+**Errors — `@mairie360/bffs-lib`:** every error is `{ error: { code, message, details } }`, registered
+once as `ErrorResponse` (`src/openapi-registry.ts`, `ErrorResponseSchema.clone()`: the clone is needed
+because the lib's schema is built before `extendZodWithOpenApi`). Routes throw `HttpError`; `app.ts`
+ends with `notFoundHandler` + `errorHandler()`, which keep the status and hide unexpected errors behind
+a generic 500. Changing the envelope is a breaking change for the fronts.
 
 **OpenAPI generation — zod-to-openapi:** `src/openapi-registry.ts` exports a single shared
 `registry`. Every route module calls `registry.registerPath(...)` and registers its Zod schemas
@@ -71,7 +77,7 @@ the document. Consequence: a new route only appears in the spec if its module is
 
 **`/dashboard/bootstrap` flow (`src/routes/dashboard.ts`):** validate Bearer → `USER_BFF /me` for
 identity (failure blocks the whole response) → in parallel `PROJECT_BFF /projects-page?page=1&limit=6`
-and `CALENDAR_BFF /calendar/bootstrap?from=&to=` (next 30 days) → per-project `PROJECT_BFF
+and `CALENDAR_BFF /calendar/bootstrap?from=&to=` (next 30 days of the `Europe/Paris` calendar, `parisDateWindow(30)`) → per-project `PROJECT_BFF
 /projects/{id}` for unfinished tasks. A 401 from any upstream propagates; any other upstream failure
 degrades that section to `sources.<x> = "unavailable"` and `metrics.totalProjects = null` rather
 than inventing data. Output is capped at 6 projects / 8 tasks / 6 events.
@@ -106,7 +112,7 @@ without a handler makes k6 abort at init. Every operation is a read, so one `rea
 
 - **ESLint:** `eslint.config.cjs` (flat config, ESLint 9) is the active one; `.eslintrc.js` is
   legacy and ignored. `@typescript-eslint/no-explicit-any` is an **error**.
-- User-facing error messages in code are in **French**; keep that consistent.
+- Error messages, comments and logs are written in **English** (see `../../CLAUDE.md`); translate the French ones you touch.
 - **Docs are bilingual:** any change to `docs/en/*.md` must be mirrored in `docs/fr/*.md`.
 - CI: `contracts.yml` (Node 24: `contracts:check` + tests) and `cicd.yml` (shared
   `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v2.3.0` — lint / audits / build / test / release

@@ -136,6 +136,30 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(calendar.undeclaredQuery).toEqual(['from', 'to'].filter((name) => !declared.includes(name)));
     });
 
+    test.each([
+      // 00:30 in Paris (CEST, UTC+2) is still 22:30 the day before in UTC.
+      ['summer time', '2026-03-31T22:30:00Z', '2026-04-01', '2026-05-01'],
+      // 00:15 in Paris (CET, UTC+1) is still 23:15 the day before in UTC, across a year boundary.
+      ['winter time', '2026-12-31T23:15:00Z', '2027-01-01', '2027-01-31'],
+    ])('asks BFF Calendar for the next 30 days of the Europe/Paris calendar (%s)', async (_label, now, from, to) => {
+      // Only Date is faked: the HTTP servers and supertest keep the real timers.
+      jest.useFakeTimers({
+        now: new Date(now),
+        doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'queueMicrotask', 'hrtime', 'performance'],
+      });
+      try {
+        mockUpstreams();
+
+        const response = await bootstrap();
+
+        expect(response.status).toBe(200);
+        const [calendar] = calendarBff.calls(CALENDAR_BFF.bootstrap);
+        expect({ from: calendar.url.searchParams.get('from'), to: calendar.url.searchParams.get('to') }).toEqual({ from, to });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     test('requests project details with the identifier encoded as the contract path parameter', async () => {
       const project = projectListItem({ id: 'projet 7/2026' });
       mockUpstreams({ projects: [project], tasks: { [project.id]: [taskItem({ id: 'task-9' })] } });
@@ -226,7 +250,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(401);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { message: 'Session invalide.' } });
+      expect(response.body).toEqual({ error: { code: 'UNAUTHORIZED', message: 'Invalid session.', details: [] } });
       expect(upstreamCalls()).toBe(0);
     });
 
@@ -238,7 +262,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(401);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { message: 'Le service USER_BFF a répondu 401.' } });
+      expect(response.body).toEqual({ error: { code: 'UNAUTHORIZED', message: 'Authentication required', details: [] } });
       expect(projectBff.requests).toHaveLength(0);
       expect(calendarBff.requests).toHaveLength(0);
     });
@@ -246,7 +270,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
     test.each([
       ['BFF Project', () => projectBff.on('get', PROJECT_BFF.page, { status: 401, body: { error: { message: 'Session invalide' } }, outOfContract: true }), 'PROJECT_BFF'],
       ['BFF Calendar', () => calendarBff.on('get', CALENDAR_BFF.bootstrap, { status: 401, body: { code: 'UNAUTHORIZED', message: 'Session invalide.' }, outOfContract: true }), 'CALENDAR_BFF'],
-    ])('propagates a 401 from %s even when the other sources succeed', async (_label, override, service) => {
+    ])('propagates a 401 from %s even when the other sources succeed', async (_label, override) => {
       mockUpstreams({ projects: [projectListItem()] });
       override();
 
@@ -254,7 +278,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(401);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { message: `Le service ${service} a répondu 401.` } });
+      expect(response.body).toEqual({ error: { code: 'UNAUTHORIZED', message: 'Authentication required', details: [] } });
     });
 
     test('returns 502 when BFF User is unreachable', async () => {
@@ -265,7 +289,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(502);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { message: 'Le service USER_BFF est indisponible.' } });
+      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'The USER_BFF service is unavailable.', details: [] } });
       expect(upstreamCalls()).toBe(0);
     });
 
@@ -277,7 +301,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(502);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { message: 'La réponse de USER_BFF est invalide.' } });
+      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'The USER_BFF answer is invalid.', details: [] } });
     });
 
     test('maps a BFF User server error to 502', async () => {
@@ -288,8 +312,32 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(502);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { message: 'Le service USER_BFF a répondu 500.' } });
+      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'Upstream service error', details: [] } });
+      expect(JSON.stringify(response.body)).not.toContain('boom');
       expect(projectBff.requests).toHaveLength(0);
+    });
+
+    test.each([403, 404, 409, 422])('maps an undeclared %i from BFF User /me to 502 without relaying its body', async (status) => {
+      mockUpstreams();
+      userBff.on('get', USER_BFF.me, { status, body: { error: { message: 'Upstream secret detail' } }, outOfContract: true });
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(502);
+      expectDashboardContract(response);
+      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'Upstream service error', details: [] } });
+      expect(projectBff.requests).toHaveLength(0);
+    });
+
+    test('maps an unusable BFF User identity to 502', async () => {
+      mockUpstreams();
+      userBff.on('get', USER_BFF.me, { body: { unexpected: true }, outOfContract: true });
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(502);
+      expectDashboardContract(response);
+      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'The dashboard data is unavailable.', details: [] } });
     });
 
     test('returns 503 when BFF User is not configured', async () => {
@@ -300,7 +348,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(503);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { message: 'Le service USER_BFF n’est pas configuré.' } });
+      expect(response.body).toEqual({ error: { code: 'SERVICE_UNAVAILABLE', message: 'The USER_BFF service is not configured.', details: [] } });
       expect(upstreamCalls()).toBe(0);
     });
 
@@ -389,7 +437,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(401);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { message: 'Le service PROJECT_BFF a répondu 401.' } });
+      expect(response.body).toEqual({ error: { code: 'UNAUTHORIZED', message: 'Authentication required', details: [] } });
     });
 
     test('a payload rejected by the dashboard parser degrades the section without inventing data', async () => {
