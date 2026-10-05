@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { HttpError, parisDateWindow } from '@mairie360/bffs-lib';
 import { ErrorSchema, registry } from '../openapi-registry';
 import { asCaller, callUpstream, calendarBff, projectBff, userBff } from '../clients/upstreams';
-import { authorization } from '../clients/upstream';
 
 const router = Router();
 const Project = z.object({
@@ -28,7 +27,6 @@ registry.registerPath({ method: 'get', path: '/dashboard/bootstrap', responses: 
 } });
 router.get('/bootstrap', async (req, res) => {
   try {
-    authorization(req);
     const user = await callUpstream('USER_BFF', () => userBff.getMe(asCaller(req, 'USER_BFF')));
     // Next 30 days on the Europe/Paris calendar: between 00:00 and 02:00 in Paris, the UTC day is still the day before.
     const { from, to } = parisDateWindow(30);
