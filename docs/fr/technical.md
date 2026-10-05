@@ -58,6 +58,7 @@ Les valeurs ci-dessous sont des exemples locaux ou des comportements expliciteme
 | `PROJECT_BFF_URL` | http://localhost:4001 | Source des projets et tâches; doit être configurée. |
 | `CALENDAR_BFF_URL` | http://localhost:4002 | Source des événements; doit être configurée. |
 | `USER_BFF_PORT` / `PROJECT_BFF_PORT` / `CALENDAR_BFF_PORT` | — | Ports optionnels si absents des URL. |
+| `TRUST_PROXY` | non défini (aucun proxy de confiance) | Réglage Express `trust proxy` (`true`, un nombre de sauts comme `1`, ou des adresses/sous-réseaux séparés par des virgules) : à définir derrière l’ingress pour que `req.ip` soit le client. |
 
 ## Routes et contrat de données
 
@@ -71,7 +72,7 @@ Inventaire extrait de `contracts/openapi.json`. Les paramètres entre accolades 
 
 ## Session, permissions et erreurs
 
-Le Bearer est transmis aux trois BFF. L’échec du contexte utilisateur bloque le bootstrap. Les appels initiaux Project et Calendar peuvent dégrader leur section; un refus 401 de ces appels ou d’un détail de projet est propagé. Seul un 401 amont est relayé (c’est le seul statut amont déclaré par le contrat) ; tout autre statut amont, une panne réseau ou un corps inexploitable devient 502, et une URL amont manquante renvoie 503. Les corps et messages amont ne sont jamais relayés. Les clients ont un délai de 10 secondes.
+Le seul identifiant accepté est l’en-tête `Authorization: Bearer <token>` (lu par `@mairie360/bffs-lib`) ; les cookies et `x-session-token` sont ignorés. Sans lui, toute requête `/dashboard/*` est refusée en 401 avant tout appel amont, et les réponses `/dashboard/*` portent `Cache-Control: no-store`. Le jeton est transmis, normalisé en `Bearer <token>`, aux trois BFF. L’échec du contexte utilisateur bloque le bootstrap. Les appels initiaux Project et Calendar peuvent dégrader leur section; un refus 401 de ces appels ou d’un détail de projet est propagé. Seul un 401 amont est relayé (c’est le seul statut amont déclaré par le contrat) ; tout autre statut amont, une panne réseau ou un corps inexploitable devient 502, et une URL amont manquante renvoie 503. Les corps et messages amont ne sont jamais relayés. Les clients ont un délai de 10 secondes.
 
 Toutes les réponses d’erreur, y compris les routes inconnues (404) et les corps illisibles (400), utilisent l’enveloppe commune à tous les BFF (`@mairie360/bffs-lib`), déclarée comme `ErrorResponse` dans le contrat :
 

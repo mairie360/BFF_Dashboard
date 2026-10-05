@@ -1,10 +1,10 @@
 import { getBffCalendar } from '@mairie360/bff-calendar-openapi/endpoints/bffCalendar';
 import { getBffProject } from '@mairie360/bff-project-openapi/endpoints/bffProject';
 import { getBffUser } from '@mairie360/bff-user-openapi/endpoints/bffUser';
-import { HttpError, mapUpstreamError } from '@mairie360/bffs-lib';
+import { HttpError, authorization, mapUpstreamError } from '@mairie360/bffs-lib';
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import type { Request } from 'express';
-import { authorization, baseUrl } from './upstream';
+import { baseUrl } from './upstream';
 
 // The upstream BFFs are only called through the operations of their published contracts
 // (@mairie360/bff-user-openapi, bff-project-openapi, bff-calendar-openapi).
@@ -19,10 +19,8 @@ export const calendarBff = getBffCalendar(upstreamAxios);
  * environment can change without a restart); a caller without a session is refused before the call.
  */
 export function asCaller(req: Request, service: string): AxiosRequestConfig {
-  return {
-    baseURL: baseUrl(service),
-    headers: { Authorization: authorization(req) },
-  };
+  const Authorization = authorization(req);
+  return { baseURL: baseUrl(service), headers: { Authorization } };
 }
 
 /** Upstream statuses the contract of /dashboard/bootstrap declares: only a refused session is relayed. */

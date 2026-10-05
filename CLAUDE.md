@@ -51,13 +51,15 @@ build `bff-dashboard:local` from `development.Dockerfile` first.
 
 **Request entry:** `src/index.ts` → `src/app.ts`. `app.ts` mounts helmet, the JSON body parser (no multipart parser: nothing reads a raw body),
 Swagger UI at `/docs`, the spec at `/openapi.json` and `/swagger.json`, and the three routers
-(`health`, `check_apis`, `dashboard`). `/dashboard/*` responses get `Cache-Control: no-store`.
+(`health`, `check_apis`, `dashboard`). `/dashboard/*` responses get `Cache-Control: no-store` (lib `noStore`) and require a Bearer token (lib `requireBearer`).
 
 **Upstream calls — `src/clients/upstream.ts`:** all outbound requests go through here.
 - `baseUrl(service)` resolves `process.env[`${service}_URL`]` (e.g. `USER_BFF_URL`), optionally
   appending `${service}_PORT`. Missing config → `HttpError(503)`.
-- `authorization(req)` requires a `Bearer <token>` header (→ `HttpError(401)`); the same token
-  is forwarded to every upstream BFF.
+- The session is the `Authorization: Bearer <token>` header only (lib `authorization` / `requireBearer`;
+  cookies and `x-session-token` are ignored). `app.ts` mounts `noStore, requireBearer` on `/dashboard`, so a
+  request without one gets a 401 before any upstream call; the token is forwarded, normalised to
+  `Bearer <token>`, to every upstream BFF. `trust proxy` comes from `TRUST_PROXY` (lib `parseTrustProxy`).
 - `src/clients/upstreams.ts` wraps the generated `@mairie360/bff-*-openapi` clients (axios, 10s timeout).
   `callUpstream()` keeps only an upstream 401 (the one upstream status the contract declares, through
   `mapUpstreamError`); any other status, a network failure or a non-JSON body → 502. Upstream bodies are

@@ -58,6 +58,7 @@ Values below are local examples or explicitly described behavior, not production
 | `PROJECT_BFF_URL` | http://localhost:4001 | Project and task source; must be configured. |
 | `CALENDAR_BFF_URL` | http://localhost:4002 | Event source; must be configured. |
 | `USER_BFF_PORT` / `PROJECT_BFF_PORT` / `CALENDAR_BFF_PORT` | — | Optional ports when absent from the URLs. |
+| `TRUST_PROXY` | unset (no proxy trusted) | Express `trust proxy` (`true`, a hop count such as `1`, or comma-separated addresses/subnets): set it behind the ingress so `req.ip` is the client. |
 
 ## Routes and data contract
 
@@ -71,7 +72,7 @@ Inventory extracted from `contracts/openapi.json`. Replace brace parameters with
 
 ## Session, permissions and errors
 
-The Bearer token is forwarded to all three BFFs. User-context failure blocks bootstrap. Initial Project and Calendar calls can degrade their respective sections; a 401 rejection from those calls or from a project detail is propagated. Only an upstream 401 is relayed (it is the only upstream status the contract declares); any other upstream status, a network failure or an unusable body becomes 502, and a missing upstream URL returns 503. Upstream bodies and messages are never relayed. Clients use a 10-second timeout.
+The only accepted credential is the `Authorization: Bearer <token>` header (read by `@mairie360/bffs-lib`); cookies and `x-session-token` are ignored. Without it, every `/dashboard/*` request is refused with 401 before any upstream call, and `/dashboard/*` answers carry `Cache-Control: no-store`. The token is forwarded, normalised to `Bearer <token>`, to all three BFFs. User-context failure blocks bootstrap. Initial Project and Calendar calls can degrade their respective sections; a 401 rejection from those calls or from a project detail is propagated. Only an upstream 401 is relayed (it is the only upstream status the contract declares); any other upstream status, a network failure or an unusable body becomes 502, and a missing upstream URL returns 503. Upstream bodies and messages are never relayed. Clients use a 10-second timeout.
 
 Every error answer, including unknown routes (404) and unparsable bodies (400), uses the envelope shared by all BFFs (`@mairie360/bffs-lib`), declared as `ErrorResponse` in the contract:
 

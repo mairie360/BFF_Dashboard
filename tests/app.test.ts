@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import request from 'supertest';
 import app from '../src/app';
 
-// Comportements transverses de l'application : 404 JSON, erreurs du body-parser et /check_apis.
+// Application-wide behaviour: JSON 404, body-parser errors, trust proxy and /check_apis.
 
 describe('application fallbacks', () => {
   test('an unknown route answers a JSON 404', async () => {
@@ -26,6 +26,25 @@ describe('application fallbacks', () => {
 
     expect(router.stack.map((layer) => layer.name)).not.toContain('rawParser');
     expect(router.stack.map((layer) => layer.name)).toContain('jsonParser');
+  });
+
+  test('trusts no proxy by default (TRUST_PROXY unset)', () => {
+    expect(app.get('trust proxy')).toBe(false);
+  });
+
+  test('reads TRUST_PROXY when the app is loaded', () => {
+    const saved = process.env.TRUST_PROXY;
+    process.env.TRUST_PROXY = '1';
+    try {
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { app: isolated } = require('../src/app') as typeof import('../src/app');
+        expect(isolated.get('trust proxy')).toBe(1);
+      });
+    } finally {
+      if (saved === undefined) delete process.env.TRUST_PROXY;
+      else process.env.TRUST_PROXY = saved;
+    }
   });
 
   test('serves the OpenAPI document', async () => {

@@ -254,6 +254,40 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(upstreamCalls()).toBe(0);
     });
 
+    test.each([
+      ['an accessToken cookie', { Cookie: 'accessToken=contract-session-token' }],
+      ['a session cookie', { Cookie: 'session=contract-session-token' }],
+      ['an x-session-token header', { 'x-session-token': 'contract-session-token' }],
+    ])('ignores %s: only the Bearer header is a session (401, no upstream call, not cached)', async (_label, headers) => {
+      mockUpstreams();
+
+      const response = await request(app).get('/dashboard/bootstrap').set(headers);
+
+      expect(response.status).toBe(401);
+      expectDashboardContract(response);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(upstreamCalls()).toBe(0);
+    });
+
+    test('refuses an unknown /dashboard path without a session with 401 before routing', async () => {
+      const response = await request(app).get('/dashboard/unknown');
+
+      expect(response.status).toBe(401);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(upstreamCalls()).toBe(0);
+    });
+
+    test('forwards the token normalised to `Bearer <token>` whatever the scheme case and spacing', async () => {
+      mockUpstreams();
+
+      const response = await bootstrap('bearer   contract-session-token');
+
+      expect(response.status).toBe(200);
+      const forwarded = mocks.flatMap((mock) => mock.requests).map((call) => call.headers.authorization);
+      expect(forwarded.length).toBeGreaterThan(0);
+      expect(new Set(forwarded)).toEqual(new Set([SESSION]));
+    });
+
     test('propagates a 401 from BFF User /me without calling the other BFFs', async () => {
       mockUpstreams();
       userBff.on('get', USER_BFF.me, { status: 401, body: { message: 'Invalid or missing session token' }, outOfContract: true });
