@@ -49,7 +49,7 @@ build `bff-dashboard:local` from `development.Dockerfile` first.
 
 ## Architecture
 
-**Request entry:** `src/index.ts` (`import 'dotenv/config'` first, then `start()`: `assertConfigured(UPSTREAM_SERVICES)` fails fast on a missing/invalid `*_URL`, under `require.main === module`) → `src/app.ts`. `app.ts` mounts helmet, the JSON body parser (no multipart parser: nothing reads a raw body),
+**Request entry:** `src/index.ts` (`import 'dotenv/config'` first, then `start()`: `assertConfigured(UPSTREAM_SERVICES)` fails fast on a missing/invalid `*_URL`, under `require.main === module`) → `src/app.ts`. `app.ts` mounts the lib's `securityHeaders` + `apiOnlyHeaders()` (strict CSP everywhere but `/docs`), `trust proxy` (`TRUST_PROXY`), the JSON body parser (no multipart parser: nothing reads a raw body),
 Swagger UI at `/docs`, the spec at `/openapi.json` and `/swagger.json`, and the three routers
 (`health`, `check_apis`, `dashboard`). `/dashboard/*` responses get `Cache-Control: no-store` (lib `noStore`) and require a Bearer token (lib `requireBearer`).
 
@@ -60,10 +60,14 @@ Swagger UI at `/docs`, the spec at `/openapi.json` and `/swagger.json`, and the 
   cookies and `x-session-token` are ignored). `app.ts` mounts `noStore, requireBearer` on `/dashboard`, so a
   request without one gets a 401 before any upstream call; the token is forwarded, normalised to
   `Bearer <token>`, to every upstream BFF. `trust proxy` comes from `TRUST_PROXY` (lib `parseTrustProxy`).
-- `src/clients/upstreams.ts` wraps the generated `@mairie360/bff-*-openapi` clients (axios, 10s timeout).
-  `callUpstream()` keeps only an upstream 401 (the one upstream status the contract declares, through
-  `mapUpstreamError`); any other status, a network failure or a non-JSON body → 502. Upstream bodies are
-  never relayed.
+- `src/clients/upstreams.ts` only wraps the generated `@mairie360/bff-*-openapi` clients (axios, `Accept`
+  header). Each call in `src/routes/dashboard.ts` uses the lib: `asCaller('<SERVICE>', req)` for the options
+  (URL, Bearer, 10s timeout) and `callUpstream('<SERVICE>', call, { declared: [401] })`, the call parsing the
+  body it needs with zod. Only an upstream 401 is relayed; any other status or no answer → 502 (lib
+  messages), a body that does not parse (non-JSON included) → 502 `The <SERVICE> answer is invalid.`
+  Upstream bodies are never relayed. No retry: the upstreams are BFFs, which retry their own APIs.
+- `/check_apis` is the lib's `checkApis` with one `getHealth(withoutSession('<SERVICE>', 5_000))` probe per
+  upstream BFF (keys `user_bff`, `project_bff`, `calendar_bff`), declared as `CheckApisResponse` for 200 and 502.
 
 **Errors — `@mairie360/bffs-lib`:** every error is `{ error: { code, message, details } }`, registered
 once as `ErrorResponse` (`src/openapi-registry.ts`, `ErrorResponseSchema.clone()`: the clone is needed
