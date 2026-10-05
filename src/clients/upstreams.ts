@@ -1,10 +1,9 @@
 import { getBffCalendar } from '@mairie360/bff-calendar-openapi/endpoints/bffCalendar';
 import { getBffProject } from '@mairie360/bff-project-openapi/endpoints/bffProject';
 import { getBffUser } from '@mairie360/bff-user-openapi/endpoints/bffUser';
-import { HttpError, authorization, mapUpstreamError } from '@mairie360/bffs-lib';
+import { HttpError, authorization, baseUrl, mapUpstreamError } from '@mairie360/bffs-lib';
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import type { Request } from 'express';
-import { baseUrl } from './upstream';
 
 // The upstream BFFs are only called through the operations of their published contracts
 // (@mairie360/bff-user-openapi, bff-project-openapi, bff-calendar-openapi).

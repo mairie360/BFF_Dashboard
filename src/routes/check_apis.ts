@@ -1,7 +1,7 @@
 import type { AxiosRequestConfig } from 'axios';
 import { Router } from 'express';
 import { registry } from '../openapi-registry';
-import { baseUrl } from '../clients/upstream';
+import { baseUrl } from '@mairie360/bffs-lib';
 import { calendarBff, projectBff, userBff } from '../clients/upstreams';
 
 const router = Router();

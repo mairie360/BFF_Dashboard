@@ -37,7 +37,7 @@ CALENDAR_BFF_URL=http://localhost:4002
 npm run start
 ```
 
-`PORT` is optional; the `src/index.ts` fallback is `4007`.
+`PORT` is optional; the `src/index.ts` fallback is `4007`. The three upstream URLs have no default (no `localhost` fallback): `src/index.ts` refuses to start, naming every missing or invalid `*_URL`, and they are read again on every call.
 
 Check the process, then open the interactive documentation:
 
@@ -54,9 +54,9 @@ Values below are local examples or explicitly described behavior, not production
 | Variable or precedence | Example / stated fallback | Purpose |
 | --- | --- | --- |
 | `PORT` | 4007 | Port used by this local example. |
-| `USER_BFF_URL` | http://localhost:4000 | Identity source; must be configured. |
-| `PROJECT_BFF_URL` | http://localhost:4001 | Project and task source; must be configured. |
-| `CALENDAR_BFF_URL` | http://localhost:4002 | Event source; must be configured. |
+| `USER_BFF_URL` | http://localhost:4000 | Identity source; required (startup fails without it). |
+| `PROJECT_BFF_URL` | http://localhost:4001 | Project and task source; required (startup fails without it). |
+| `CALENDAR_BFF_URL` | http://localhost:4002 | Event source; required (startup fails without it). |
 | `USER_BFF_PORT` / `PROJECT_BFF_PORT` / `CALENDAR_BFF_PORT` | — | Optional ports when absent from the URLs. |
 | `TRUST_PROXY` | unset (no proxy trusted) | Express `trust proxy` (`true`, a hop count such as `1`, or comma-separated addresses/subnets): set it behind the ingress so `req.ip` is the client. |
 
@@ -72,7 +72,7 @@ Inventory extracted from `contracts/openapi.json`. Replace brace parameters with
 
 ## Session, permissions and errors
 
-The only accepted credential is the `Authorization: Bearer <token>` header (read by `@mairie360/bffs-lib`); cookies and `x-session-token` are ignored. Without it, every `/dashboard/*` request is refused with 401 before any upstream call, and `/dashboard/*` answers carry `Cache-Control: no-store`. The token is forwarded, normalised to `Bearer <token>`, to all three BFFs. User-context failure blocks bootstrap. Initial Project and Calendar calls can degrade their respective sections; a 401 rejection from those calls or from a project detail is propagated. Only an upstream 401 is relayed (it is the only upstream status the contract declares); any other upstream status, a network failure or an unusable body becomes 502, and a missing upstream URL returns 503. Upstream bodies and messages are never relayed. Clients use a 10-second timeout.
+The only accepted credential is the `Authorization: Bearer <token>` header (read by `@mairie360/bffs-lib`); cookies and `x-session-token` are ignored. Without it, every `/dashboard/*` request is refused with 401 before any upstream call, and `/dashboard/*` answers carry `Cache-Control: no-store`. The token is forwarded, normalised to `Bearer <token>`, to all three BFFs. User-context failure blocks bootstrap. Initial Project and Calendar calls can degrade their respective sections; a 401 rejection from those calls or from a project detail is propagated. Only an upstream 401 is relayed (it is the only upstream status the contract declares); any other upstream status, a network failure or an unusable body becomes 502, and a missing or invalid upstream URL returns 503. Upstream bodies and messages are never relayed. Clients use a 10-second timeout.
 
 Every error answer, including unknown routes (404) and unparsable bodies (400), uses the envelope shared by all BFFs (`@mairie360/bffs-lib`), declared as `ErrorResponse` in the contract:
 
@@ -100,9 +100,9 @@ The type generator is pinned to `openapi-typescript@7.10.1` in `scripts/contract
 
 The `contracts.yml` job uses Node.js 24, `actions/checkout@v7` and `actions/setup-node@v7`. It runs on pushes, pull requests and manual dispatch; it installs with `npm ci`, checks contracts and runs the associated tests.
 
-`cicd.yml` calls `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v3.0.0`, with `cicd_version: v3.0.0`, `node_version: "22"` and `openapi_spec_path: contracts/openapi.json`. Reusable steps and GitHub environments determine actual checks, publications and deployments; releases are computed by semantic-release (`.releaserc.json`).
+`cicd.yml` calls `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v3.2.0`, with `cicd_version: v3.2.0`, `node_version: "24"` and `openapi_spec_path: contracts/openapi.json`. Reusable steps and GitHub environments determine actual checks, publications and deployments; releases are computed by semantic-release (`.releaserc.json`).
 
-The Dockerfile uses `node:24-alpine` for build and runtime; the image command is `["node", "dist/index.js"]`. GitHub Packages credentials are only mounted as build secrets (`npmrc`, `node_auth_token`) during `npm ci`. `development.Dockerfile` installs all dependencies and runs `npm run start`.
+The Dockerfile uses `node:24-alpine`, pinned by digest, for build and runtime (`development.Dockerfile` too); the image command is `["node", "dist/index.js"]`. GitHub Packages credentials are only mounted as build secrets (`npmrc`, `node_auth_token`) during `npm ci`. `development.Dockerfile` installs all dependencies and runs `npm run start`.
 
 `security_test.sh` and `performance_test.sh` test the image named by `IMAGE_REF`: in CI, the image `release-dev` has just published, the same artifact that is then promoted to staging and prod. When `IMAGE_REF` is empty (local use), they first build `bff-dashboard:local` from `development.Dockerfile`, which needs `NODE_AUTH_TOKEN` and `./.npmrc`.
 
@@ -120,7 +120,7 @@ Inspect `sources.projects`, `sources.tasks` and `sources.calendar` before interp
 
 - [src/app.ts](../../src/app.ts)
 - [src/routes/dashboard.ts](../../src/routes/dashboard.ts)
-- [src/clients/upstream.ts](../../src/clients/upstream.ts)
+- [src/clients/upstreams.ts](../../src/clients/upstreams.ts)
 - [contracts/openapi.json](../../contracts/openapi.json)
 - [contracts/bff.d.ts](../../contracts/bff.d.ts)
 - [scripts/contracts.mjs](../../scripts/contracts.mjs)

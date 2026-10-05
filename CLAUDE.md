@@ -49,13 +49,13 @@ build `bff-dashboard:local` from `development.Dockerfile` first.
 
 ## Architecture
 
-**Request entry:** `src/index.ts` → `src/app.ts`. `app.ts` mounts helmet, the JSON body parser (no multipart parser: nothing reads a raw body),
+**Request entry:** `src/index.ts` (`import 'dotenv/config'` first, then `start()`: `assertConfigured(UPSTREAM_SERVICES)` fails fast on a missing/invalid `*_URL`, under `require.main === module`) → `src/app.ts`. `app.ts` mounts helmet, the JSON body parser (no multipart parser: nothing reads a raw body),
 Swagger UI at `/docs`, the spec at `/openapi.json` and `/swagger.json`, and the three routers
 (`health`, `check_apis`, `dashboard`). `/dashboard/*` responses get `Cache-Control: no-store` (lib `noStore`) and require a Bearer token (lib `requireBearer`).
 
-**Upstream calls — `src/clients/upstream.ts`:** all outbound requests go through here.
-- `baseUrl(service)` resolves `process.env[`${service}_URL`]` (e.g. `USER_BFF_URL`), optionally
-  appending `${service}_PORT`. Missing config → `HttpError(503)`.
+**Upstream calls:** all outbound requests go through `src/clients/upstreams.ts`.
+- lib `baseUrl(service)` resolves `process.env[`${service}_URL`]` (e.g. `USER_BFF_URL`) on every call,
+  optionally appending `${service}_PORT`. Missing/invalid config → `HttpError(503)`; no `localhost` default.
 - The session is the `Authorization: Bearer <token>` header only (lib `authorization` / `requireBearer`;
   cookies and `x-session-token` are ignored). `app.ts` mounts `noStore, requireBearer` on `/dashboard`, so a
   request without one gets a 401 before any upstream call; the token is forwarded, normalised to
@@ -117,19 +117,16 @@ without a handler makes k6 abort at init. Every operation is a read, so one `rea
 - Error messages, comments and logs are written in **English** (see `../../CLAUDE.md`); translate the French ones you touch.
 - **Docs are bilingual:** any change to `docs/en/*.md` must be mirrored in `docs/fr/*.md`.
 - CI: `contracts.yml` (Node 24: `contracts:check` + tests) and `cicd.yml` (shared
-  `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v2.3.0` — lint / audits / build / test / release
+  `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v3.2.0`, `node_version: "24"` — lint / audits / build / test / release
   dev→staging→prod, plus `security_tests` / `performance_tests` which run `./security_test.sh` /
   `./performance_test.sh` at repo root). Keep the `@vX.Y.Z` ref and `cicd_version:` input in sync.
-- Dockerfiles use `node:24-alpine`; npm credentials only enter through BuildKit secrets
+- Dockerfiles use `node:24-alpine` pinned by digest (both `Dockerfile` stages and `development.Dockerfile`); npm credentials only enter through BuildKit secrets
   (`npmrc`, `node_auth_token`). Locally, the test scripts build `development.Dockerfile` when `IMAGE_REF` is empty.
 - `.npmrc` points `@mairie360:*` at GitHub Packages and needs `NODE_AUTH_TOKEN`: the
   `@mairie360/bff-*-openapi` devDependencies used by the tests are private.
 - **Known stale bits** (don't rely on them): `npm run contracts:sync` is referenced in `CONTRACT.md`
   / docs but is not defined in `package.json`, and `scripts/contracts.mjs --sync` has a hardcoded
   `source = null` so it throws.
-- `src/routes/check_apis.ts` probes services named `CORE_API` / `PROJECT_API` (via `CORE_API_URL`
-  etc.), which don't match the `USER_BFF` / `PROJECT_BFF` / `CALENDAR_BFF` names used everywhere
-  else or `.env.example` — treat `/check_apis` as an incomplete diagnostic.
 
 ## Environment
 
