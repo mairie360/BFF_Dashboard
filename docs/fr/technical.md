@@ -45,7 +45,7 @@ Vérifier le processus puis consulter la documentation interactive:
 curl --fail --silent --show-error http://localhost:4007/health
 ```
 
-Interface Swagger: `http://localhost:4007/docs`. Spécification JSON: `/openapi.json`, avec l’alias `/swagger.json`. `/health` vérifie le processus; `/check_apis` est un diagnostic distinct des dépendances.
+Interface Swagger: `http://localhost:4007/docs`. Spécification JSON: `/openapi.json`, avec l’alias `/swagger.json`. `/health` vérifie le processus; `/check_apis` est un diagnostic distinct des dépendances : il appelle l’opération `/health` de BFF User, Project et Calendar (délai de 5 secondes, mêmes variables `*_URL` que les appels réels) et répond `{ status: 'OK' | 'Error', user_bff, project_bff, calendar_bff }` avec `Connected` ou `Unreachable` pour chacun (`CheckApisResponse` dans le contrat), 200 si tous sont joignables, 502 sinon ; un service non configuré est `Unreachable`.
 
 ## Configuration
 
@@ -72,7 +72,9 @@ Inventaire extrait de `contracts/openapi.json`. Les paramètres entre accolades 
 
 ## Session, permissions et erreurs
 
-Le seul identifiant accepté est l’en-tête `Authorization: Bearer <token>` (lu par `@mairie360/bffs-lib`) ; les cookies et `x-session-token` sont ignorés. Sans lui, toute requête `/dashboard/*` est refusée en 401 avant tout appel amont, et les réponses `/dashboard/*` portent `Cache-Control: no-store`. Le jeton est transmis, normalisé en `Bearer <token>`, aux trois BFF. L’échec du contexte utilisateur bloque le bootstrap. Les appels initiaux Project et Calendar peuvent dégrader leur section; un refus 401 de ces appels ou d’un détail de projet est propagé. Seul un 401 amont est relayé (c’est le seul statut amont déclaré par le contrat) ; tout autre statut amont, une panne réseau ou un corps inexploitable devient 502, et une URL amont manquante ou invalide renvoie 503. Les corps et messages amont ne sont jamais relayés. Les clients ont un délai de 10 secondes.
+Le seul identifiant accepté est l’en-tête `Authorization: Bearer <token>` (lu par `@mairie360/bffs-lib`) ; les cookies et `x-session-token` sont ignorés. Sans lui, toute requête `/dashboard/*` est refusée en 401 avant tout appel amont, et les réponses `/dashboard/*` portent `Cache-Control: no-store`. Le jeton est transmis, normalisé en `Bearer <token>`, aux trois BFF. L’échec du contexte utilisateur bloque le bootstrap. Les appels initiaux Project et Calendar peuvent dégrader leur section; un refus 401 de ces appels ou d’un détail de projet est propagé. Seul un 401 amont est relayé (c’est le seul statut amont déclaré par le contrat) ; tout autre statut amont, une panne réseau ou un corps inexploitable devient 502 (corps BFF User inexploitable : `The USER_BFF answer is invalid.`), et une URL amont manquante ou invalide renvoie 503. Les corps et messages amont ne sont jamais relayés. Les clients ont un délai de 10 secondes.
+
+Les en-têtes de sécurité viennent de la lib (`securityHeaders`, puis `apiOnlyHeaders()` : CSP `default-src 'none'`, `nosniff`, CORP `same-origin` partout sauf `/docs`).
 
 Toutes les réponses d’erreur, y compris les routes inconnues (404) et les corps illisibles (400), utilisent l’enveloppe commune à tous les BFF (`@mairie360/bffs-lib`), déclarée comme `ErrorResponse` dans le contrat :
 

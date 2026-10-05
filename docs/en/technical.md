@@ -45,7 +45,7 @@ Check the process, then open the interactive documentation:
 curl --fail --silent --show-error http://localhost:4007/health
 ```
 
-Swagger UI: `http://localhost:4007/docs`. JSON specification: `/openapi.json`, with `/swagger.json` as an alias. `/health` checks the process; `/check_apis` is a separate dependency diagnostic.
+Swagger UI: `http://localhost:4007/docs`. JSON specification: `/openapi.json`, with `/swagger.json` as an alias. `/health` checks the process; `/check_apis` is a separate dependency diagnostic: it calls the `/health` operation of BFF User, Project and Calendar (5-second timeout, same `*_URL` variables as real calls) and answers `{ status: 'OK' | 'Error', user_bff, project_bff, calendar_bff }` with `Connected` or `Unreachable` for each (`CheckApisResponse` in the contract), 200 when all are reachable, 502 otherwise; an unconfigured service is `Unreachable`.
 
 ## Configuration
 
@@ -72,7 +72,9 @@ Inventory extracted from `contracts/openapi.json`. Replace brace parameters with
 
 ## Session, permissions and errors
 
-The only accepted credential is the `Authorization: Bearer <token>` header (read by `@mairie360/bffs-lib`); cookies and `x-session-token` are ignored. Without it, every `/dashboard/*` request is refused with 401 before any upstream call, and `/dashboard/*` answers carry `Cache-Control: no-store`. The token is forwarded, normalised to `Bearer <token>`, to all three BFFs. User-context failure blocks bootstrap. Initial Project and Calendar calls can degrade their respective sections; a 401 rejection from those calls or from a project detail is propagated. Only an upstream 401 is relayed (it is the only upstream status the contract declares); any other upstream status, a network failure or an unusable body becomes 502, and a missing or invalid upstream URL returns 503. Upstream bodies and messages are never relayed. Clients use a 10-second timeout.
+The only accepted credential is the `Authorization: Bearer <token>` header (read by `@mairie360/bffs-lib`); cookies and `x-session-token` are ignored. Without it, every `/dashboard/*` request is refused with 401 before any upstream call, and `/dashboard/*` answers carry `Cache-Control: no-store`. The token is forwarded, normalised to `Bearer <token>`, to all three BFFs. User-context failure blocks bootstrap. Initial Project and Calendar calls can degrade their respective sections; a 401 rejection from those calls or from a project detail is propagated. Only an upstream 401 is relayed (it is the only upstream status the contract declares); any other upstream status, a network failure or an unusable body becomes 502 (an unusable BFF User body: `The USER_BFF answer is invalid.`), and a missing or invalid upstream URL returns 503. Upstream bodies and messages are never relayed. Clients use a 10-second timeout.
+
+Security headers come from the lib (`securityHeaders`, then `apiOnlyHeaders()`: `default-src 'none'` CSP, `nosniff`, `same-origin` CORP everywhere but `/docs`).
 
 Every error answer, including unknown routes (404) and unparsable bodies (400), uses the envelope shared by all BFFs (`@mairie360/bffs-lib`), declared as `ErrorResponse` in the contract:
 

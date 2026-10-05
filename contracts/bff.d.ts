@@ -11,7 +11,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Vérifie la santé du BFF */
+        /** Checks that the BFF process is up */
         get: {
             parameters: {
                 query?: never;
@@ -45,6 +45,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** Checks that the three upstream BFFs are reachable */
         get: {
             parameters: {
                 query?: never;
@@ -54,19 +55,23 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Services disponibles */
+                /** @description Every upstream BFF answered its /health operation */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["CheckApisResponse"];
+                    };
                 };
-                /** @description Service indisponible */
+                /** @description At least one upstream BFF is unreachable or not configured */
                 502: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["CheckApisResponse"];
+                    };
                 };
             };
         };
@@ -94,7 +99,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Données des mêmes BFF que les pages métier, dans le périmètre de la session */
+                /** @description Data from the same BFFs as the business pages, within the session scope */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -154,6 +159,16 @@ export interface components {
                     message: string;
                 }[];
             };
+        };
+        CheckApisResponse: {
+            /** @enum {string} */
+            status: "OK" | "Error";
+            /** @enum {string} */
+            user_bff: "Connected" | "Unreachable";
+            /** @enum {string} */
+            project_bff: "Connected" | "Unreachable";
+            /** @enum {string} */
+            calendar_bff: "Connected" | "Unreachable";
         };
         DashboardBootstrap: {
             userFirstName: string;

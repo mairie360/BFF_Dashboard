@@ -371,7 +371,8 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(502);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'The dashboard data is unavailable.', details: [] } });
+      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'The USER_BFF answer is invalid.', details: [] } });
+      expect(projectBff.requests).toHaveLength(0);
     });
 
     test('returns 503 when BFF User is not configured', async () => {

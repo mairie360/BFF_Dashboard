@@ -1,7 +1,9 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import request from 'supertest';
+import path from 'node:path';
 import app from '../src/app';
+import { OpenApiContract } from './support/openapi-contract';
 
 // Application-wide behaviour: JSON 404, body-parser errors, trust proxy and /check_apis.
 
@@ -47,6 +49,24 @@ describe('application fallbacks', () => {
     }
   });
 
+  test('API answers carry the strict API-only headers and no X-Powered-By', async () => {
+    const response = await request(app).get('/health');
+
+    expect(response.headers['content-security-policy']).toBe("default-src 'none'");
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+    expect(response.headers['cross-origin-resource-policy']).toBe('same-origin');
+    expect(response.headers['permissions-policy']).toBe('geolocation=(), camera=(), microphone=()');
+    expect(response.headers['x-powered-by']).toBeUndefined();
+  });
+
+  test('the interactive documentation keeps the helmet CSP it needs', async () => {
+    const response = await request(app).get('/docs/');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-security-policy']).not.toBe("default-src 'none'");
+    expect(response.headers['content-security-policy']).toContain("default-src 'self'");
+  });
+
   test('serves the OpenAPI document', async () => {
     const response = await request(app).get('/openapi.json');
 
@@ -71,7 +91,17 @@ describe('GET /check_apis', () => {
   afterAll(async () => {
     await new Promise((resolve) => healthy.close(resolve));
   });
+  const contract = OpenApiContract.load(path.join(__dirname, '..', 'contracts', 'openapi.json'));
+  const expectCheckApisContract = (response: request.Response) => {
+    const { documented, schema } = contract.responseSchema(contract.match('get', '/check_apis')!, response.status);
+    expect(documented).toBe(true);
+    expect(schema).toBeDefined();
+    expect(contract.validate(schema!, response.body)).toEqual([]);
+  };
+  let warnSpy: jest.SpyInstance;
+  beforeEach(() => { warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined); });
   afterEach(() => {
+    warnSpy.mockRestore();
     for (const name of services) {
       if (saved[name] === undefined) delete process.env[name];
       else process.env[name] = saved[name];
@@ -87,6 +117,7 @@ describe('GET /check_apis', () => {
     expect(response.body).toEqual({
       status: 'OK', user_bff: 'Connected', project_bff: 'Connected', calendar_bff: 'Connected',
     });
+    expectCheckApisContract(response);
   });
 
   test('answers 502 when a service is not configured or not healthy', async () => {
@@ -100,5 +131,24 @@ describe('GET /check_apis', () => {
     expect(response.body).toEqual({
       status: 'Error', user_bff: 'Connected', project_bff: 'Unreachable', calendar_bff: 'Unreachable',
     });
+    expectCheckApisContract(response);
+    expect(warnSpy.mock.calls.map(([message]) => String(message))).toEqual([
+      expect.stringContaining('project_bff unreachable'),
+      expect.stringContaining('calendar_bff unreachable: The CALENDAR_BFF service is not configured.'),
+    ]);
+  });
+
+  test('never falls back to localhost: an unconfigured service is unreachable without any call', async () => {
+    let calls = 0;
+    healthy.on('request', () => { calls += 1; });
+    for (const name of services) delete process.env[name];
+
+    const response = await request(app).get('/check_apis');
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+      status: 'Error', user_bff: 'Unreachable', project_bff: 'Unreachable', calendar_bff: 'Unreachable',
+    });
+    expect(calls).toBe(0);
   });
 });

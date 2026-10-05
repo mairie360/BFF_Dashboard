@@ -73,6 +73,45 @@
           "error"
         ]
       },
+      "CheckApisResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "Error"
+            ]
+          },
+          "user_bff": {
+            "type": "string",
+            "enum": [
+              "Connected",
+              "Unreachable"
+            ]
+          },
+          "project_bff": {
+            "type": "string",
+            "enum": [
+              "Connected",
+              "Unreachable"
+            ]
+          },
+          "calendar_bff": {
+            "type": "string",
+            "enum": [
+              "Connected",
+              "Unreachable"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "user_bff",
+          "project_bff",
+          "calendar_bff"
+        ]
+      },
       "DashboardBootstrap": {
         "type": "object",
         "properties": {
@@ -254,7 +293,7 @@
         "tags": [
           "Connectivity"
         ],
-        "summary": "Vérifie la santé du BFF",
+        "summary": "Checks that the BFF process is up",
         "responses": {
           "200": {
             "description": "OK"
@@ -265,12 +304,30 @@
     "/check_apis": {
       "get": {
         "security": [],
+        "tags": [
+          "Connectivity"
+        ],
+        "summary": "Checks that the three upstream BFFs are reachable",
         "responses": {
           "200": {
-            "description": "Services disponibles"
+            "description": "Every upstream BFF answered its /health operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckApisResponse"
+                }
+              }
+            }
           },
           "502": {
-            "description": "Service indisponible"
+            "description": "At least one upstream BFF is unreachable or not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckApisResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -279,7 +336,7 @@
       "get": {
         "responses": {
           "200": {
-            "description": "Données des mêmes BFF que les pages métier, dans le périmètre de la session",
+            "description": "Data from the same BFFs as the business pages, within the session scope",
             "content": {
               "application/json": {
                 "schema": {

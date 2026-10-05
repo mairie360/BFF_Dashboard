@@ -8,7 +8,7 @@ registry.registerPath({
   path: '/health',
   security: [],
   tags: ['Connectivity'],
-  summary: "Vérifie la santé du BFF",
+  summary: 'Checks that the BFF process is up',
   responses: {
     200: {
       description: 'OK',
