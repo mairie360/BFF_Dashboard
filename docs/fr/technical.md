@@ -37,7 +37,7 @@ CALENDAR_BFF_URL=http://localhost:4002
 npm run start
 ```
 
-`PORT` est optionnel; le repli de `src/index.ts` est `4007`.
+`PORT` est optionnel; le repli de `src/index.ts` est `4007`. Les trois URL amont n’ont pas de valeur par défaut (pas de repli `localhost`) : `src/index.ts` refuse de démarrer en nommant chaque `*_URL` manquante ou invalide, et elles sont relues à chaque appel.
 
 Vérifier le processus puis consulter la documentation interactive:
 
@@ -54,9 +54,9 @@ Les valeurs ci-dessous sont des exemples locaux ou des comportements expliciteme
 | Variable ou priorité | Exemple / repli indiqué | Rôle |
 | --- | --- | --- |
 | `PORT` | 4007 | Port de cet exemple local. |
-| `USER_BFF_URL` | http://localhost:4000 | Source de l’identité; doit être configurée. |
-| `PROJECT_BFF_URL` | http://localhost:4001 | Source des projets et tâches; doit être configurée. |
-| `CALENDAR_BFF_URL` | http://localhost:4002 | Source des événements; doit être configurée. |
+| `USER_BFF_URL` | http://localhost:4000 | Source de l’identité; obligatoire (le démarrage échoue sans elle). |
+| `PROJECT_BFF_URL` | http://localhost:4001 | Source des projets et tâches; obligatoire (le démarrage échoue sans elle). |
+| `CALENDAR_BFF_URL` | http://localhost:4002 | Source des événements; obligatoire (le démarrage échoue sans elle). |
 | `USER_BFF_PORT` / `PROJECT_BFF_PORT` / `CALENDAR_BFF_PORT` | — | Ports optionnels si absents des URL. |
 | `TRUST_PROXY` | non défini (aucun proxy de confiance) | Réglage Express `trust proxy` (`true`, un nombre de sauts comme `1`, ou des adresses/sous-réseaux séparés par des virgules) : à définir derrière l’ingress pour que `req.ip` soit le client. |
 
@@ -72,7 +72,7 @@ Inventaire extrait de `contracts/openapi.json`. Les paramètres entre accolades 
 
 ## Session, permissions et erreurs
 
-Le seul identifiant accepté est l’en-tête `Authorization: Bearer <token>` (lu par `@mairie360/bffs-lib`) ; les cookies et `x-session-token` sont ignorés. Sans lui, toute requête `/dashboard/*` est refusée en 401 avant tout appel amont, et les réponses `/dashboard/*` portent `Cache-Control: no-store`. Le jeton est transmis, normalisé en `Bearer <token>`, aux trois BFF. L’échec du contexte utilisateur bloque le bootstrap. Les appels initiaux Project et Calendar peuvent dégrader leur section; un refus 401 de ces appels ou d’un détail de projet est propagé. Seul un 401 amont est relayé (c’est le seul statut amont déclaré par le contrat) ; tout autre statut amont, une panne réseau ou un corps inexploitable devient 502, et une URL amont manquante renvoie 503. Les corps et messages amont ne sont jamais relayés. Les clients ont un délai de 10 secondes.
+Le seul identifiant accepté est l’en-tête `Authorization: Bearer <token>` (lu par `@mairie360/bffs-lib`) ; les cookies et `x-session-token` sont ignorés. Sans lui, toute requête `/dashboard/*` est refusée en 401 avant tout appel amont, et les réponses `/dashboard/*` portent `Cache-Control: no-store`. Le jeton est transmis, normalisé en `Bearer <token>`, aux trois BFF. L’échec du contexte utilisateur bloque le bootstrap. Les appels initiaux Project et Calendar peuvent dégrader leur section; un refus 401 de ces appels ou d’un détail de projet est propagé. Seul un 401 amont est relayé (c’est le seul statut amont déclaré par le contrat) ; tout autre statut amont, une panne réseau ou un corps inexploitable devient 502, et une URL amont manquante ou invalide renvoie 503. Les corps et messages amont ne sont jamais relayés. Les clients ont un délai de 10 secondes.
 
 Toutes les réponses d’erreur, y compris les routes inconnues (404) et les corps illisibles (400), utilisent l’enveloppe commune à tous les BFF (`@mairie360/bffs-lib`), déclarée comme `ErrorResponse` dans le contrat :
 
@@ -100,9 +100,9 @@ Le générateur de types est fixé à `openapi-typescript@7.10.1` dans `scripts/
 
 Le job `contracts.yml` utilise Node.js 24, `actions/checkout@v7` et `actions/setup-node@v7`. Il s’exécute sur push, pull request et lancement manuel; il installe avec `npm ci`, contrôle les contrats et lance les tests dédiés.
 
-`cicd.yml` appelle `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v3.0.0`, avec `cicd_version: v3.0.0`, `node_version: "22"` et `openapi_spec_path: contracts/openapi.json`. Les étapes réutilisables et les environnements GitHub déterminent les contrôles, publications et déploiements effectifs; les versions sont calculées par semantic-release (`.releaserc.json`).
+`cicd.yml` appelle `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v3.2.0`, avec `cicd_version: v3.2.0`, `node_version: "24"` et `openapi_spec_path: contracts/openapi.json`. Les étapes réutilisables et les environnements GitHub déterminent les contrôles, publications et déploiements effectifs; les versions sont calculées par semantic-release (`.releaserc.json`).
 
-Le Dockerfile utilise `node:24-alpine` pour la construction et l’exécution; la commande de l’image est `["node", "dist/index.js"]`. Les identifiants GitHub Packages ne sont montés qu’en secrets de build (`npmrc`, `node_auth_token`) pendant `npm ci`. `development.Dockerfile` installe toutes les dépendances et lance `npm run start`.
+Le Dockerfile utilise `node:24-alpine`, épinglé par digest, pour la construction et l’exécution (`development.Dockerfile` aussi); la commande de l’image est `["node", "dist/index.js"]`. Les identifiants GitHub Packages ne sont montés qu’en secrets de build (`npmrc`, `node_auth_token`) pendant `npm ci`. `development.Dockerfile` installe toutes les dépendances et lance `npm run start`.
 
 `security_test.sh` et `performance_test.sh` testent l’image désignée par `IMAGE_REF`: en CI, l’image que `release-dev` vient de publier, soit l’artefact ensuite promu en staging puis en prod. Quand `IMAGE_REF` est vide (usage local), ils construisent d’abord `bff-dashboard:local` depuis `development.Dockerfile`, ce qui demande `NODE_AUTH_TOKEN` et `./.npmrc`.
 
@@ -120,7 +120,7 @@ Examiner `sources.projects`, `sources.tasks` et `sources.calendar` avant d’int
 
 - [src/app.ts](../../src/app.ts)
 - [src/routes/dashboard.ts](../../src/routes/dashboard.ts)
-- [src/clients/upstream.ts](../../src/clients/upstream.ts)
+- [src/clients/upstreams.ts](../../src/clients/upstreams.ts)
 - [contracts/openapi.json](../../contracts/openapi.json)
 - [contracts/bff.d.ts](../../contracts/bff.d.ts)
 - [scripts/contracts.mjs](../../scripts/contracts.mjs)

@@ -386,6 +386,29 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(upstreamCalls()).toBe(0);
     });
 
+    test.each([
+      ['an invalid URL', { USER_BFF_URL: 'http://bad host' }],
+      ['an invalid port', { USER_BFF_URL: 'bff-user', USER_BFF_PORT: '99999' }],
+    ])('returns 503 when BFF User has %s, without calling any upstream', async (_label, env) => {
+      mockUpstreams();
+      Object.assign(process.env, env);
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(503);
+      expectDashboardContract(response);
+      expect(response.body).toEqual({ error: { code: 'SERVICE_UNAVAILABLE', message: 'The USER_BFF service is misconfigured.', details: [] } });
+      expect(upstreamCalls()).toBe(0);
+    });
+
+    test('still answers 401 first when no upstream is configured', async () => {
+      for (const mock of mocks) delete process.env[`${mock.service}_URL`];
+
+      const response = await bootstrap(null);
+
+      expect(response.status).toBe(401);
+    });
+
     test('builds upstream URLs from a scheme-less host and the *_PORT variables', async () => {
       mockUpstreams();
       for (const mock of mocks) {

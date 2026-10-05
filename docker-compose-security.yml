@@ -321,8 +321,6 @@ services:
       USER_BFF_URL: http://bff-user:4000
       PROJECT_BFF_URL: http://bff-project:4001
       CALENDAR_BFF_URL: http://bff-calendar:4002
-      CORE_API_URL: http://core-api:3000
-      PROJECT_API_URL: http://project-api:3001
     expose:
       - "4007"
     networks:
