@@ -130,10 +130,8 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(Date.parse(to) - Date.parse(from)).toBe(30 * DAY_MS);
-      // BFF Calendar lit from/to, mais @mairie360/bff-calendar-openapi@0.3.0 ne les déclare pas encore (corrigé
-      // dans BFF_Calendar). Dès que le paquet installé les déclare, le mock valide aussi leur format.
-      const declared = (calendarBff.contract.match('get', '/calendar/bootstrap')!.operation.parameters ?? []).map((parameter) => parameter.name);
-      expect(calendar.undeclaredQuery).toEqual(['from', 'to'].filter((name) => !declared.includes(name)));
+      // @mairie360/bff-calendar-openapi declares from/to since 0.4.0: the mock validates them as declared parameters.
+      expect(calendar.undeclaredQuery).toEqual([]);
     });
 
     test.each([
