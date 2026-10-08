@@ -48,9 +48,8 @@ router.get('/bootstrap', async (req, res) => {
   const [projectsResult, calendarResult] = await Promise.allSettled([
     callUpstream('PROJECT_BFF', async () => ProjectsPage.parse(
       (await projectBff.getProjectsPage({ page: 1, limit: 6 }, asCaller('PROJECT_BFF', req))).data), DECLARED),
-    // BFF Calendar reads from and to, but its published contract does not declare them yet.
     callUpstream('CALENDAR_BFF', async () => CalendarBootstrap.parse(
-      (await calendarBff.getCalendarBootstrap({ ...asCaller('CALENDAR_BFF', req), params: { from, to } })).data), DECLARED),
+      (await calendarBff.getCalendarBootstrap({ from, to }, asCaller('CALENDAR_BFF', req))).data), DECLARED),
   ]);
   rethrowRefusedSession([projectsResult, calendarResult]);
   const projectsPage = projectsResult.status === 'fulfilled' ? projectsResult.value : undefined;
