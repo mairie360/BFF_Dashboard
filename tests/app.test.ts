@@ -134,7 +134,7 @@ describe('GET /check_apis', () => {
     expectCheckApisContract(response);
     expect(warnSpy.mock.calls.map(([message]) => String(message))).toEqual([
       expect.stringContaining('project_bff unreachable'),
-      expect.stringContaining('calendar_bff unreachable: The CALENDAR_BFF service is not configured.'),
+      expect.stringContaining('calendar_bff unreachable: HttpError 503 SERVICE_UNAVAILABLE: The CALENDAR_BFF service is not configured.'),
     ]);
   });
 
