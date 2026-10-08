@@ -1,0 +1,359 @@
+# GDPR log marker stack (MAIR-290) for the BFF Dashboard: docker-compose-security.yml without ZAP,
+# plus the `gdpr-marker` runner of mairie360/CICD (tests/gdpr/marker), which plays
+# gdpr-marker.yaml with a marker user through the BFF. gdpr_marker_test.sh then searches the logs
+# of every container (the BFF, its upstream APIs and BFFs, Postgres, Redis) for its values.
+#
+#   ./gdpr_marker_test.sh                    (local)
+#   IMAGE_REF=<image> ./gdpr_marker_test.sh  (CI: the image promoted to staging)
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  backend:
+
+x-db-env: &db-env
+  DB_TYPE: postgres
+  DB_NAME: mairie_360_database
+  DB_USER: postgres
+  DB_PASSWORD: password
+  DB_HOST: postgres
+  DB_PORT: 5432
+
+x-api-env: &api-env
+  <<: *db-env
+  HOST: "0.0.0.0"
+  REDIS_URL: redis://redis:6379
+  JWT_SECRET: b"secret"
+  JWT_TIMEOUT: 3600
+
+services:
+  postgres:
+    image: ${DB_IMAGE:-ghcr.io/mairie360/database:2.0.0}
+    container_name: bff-dashboard-gdpr-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mairie_360_database
+    expose:
+      - "5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  liquibase:
+    # Database >= MAIR-413 only seeds the template admin (users.id = 1) with -Dallow_template_admin=true.
+    image: ${LIQUIBASE_IMAGE:-ghcr.io/mairie360/liquibase-migrations:2.0.0}
+    container_name: bff-dashboard-gdpr-liquibase
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/mairie_360_database
+      LIQUIBASE_COMMAND_USERNAME: postgres
+      LIQUIBASE_COMMAND_PASSWORD: password
+      LIQUIBASE_SEARCH_PATH: /migrations
+    command: >
+      --changelog-file=changelog.xml
+      update
+      -Dallow_template_admin=true
+    networks:
+      - backend
+
+  seeder:
+    image: postgres:18-alpine
+    container_name: bff-dashboard-gdpr-seeder
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+    volumes:
+      - ./init-test.sql:/init-test.sql:ro
+    environment:
+      PGPASSWORD: password
+    command: >
+      sh -c "psql -v ON_ERROR_STOP=1 -h postgres -U postgres -d mairie_360_database -f /init-test.sql"
+    networks:
+      - backend
+
+  redis:
+    image: redis:8.4.0-bookworm
+    container_name: bff-dashboard-gdpr-redis
+    expose:
+      - "6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  core-api:
+    image: ${CORE_API_IMAGE:-ghcr.io/mairie360/core-api:2.0.0}
+    container_name: bff-dashboard-gdpr-core-api
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      # Lift the API rate limit (MAIR-425): the journey hammers it as one user.
+      RATE_LIMIT_ENABLED: "false"
+      # mairie360_api_lib >= 2.0 refuses the well-known b"secret" without this flag. Throwaway test
+      # stack only: a deployment uses a random secret of at least 32 bytes (MAIR-428).
+      JWT_ALLOW_WEAK_SECRET: "true"
+      EMAIL_FROM: "noreply.mairie360@test.local"
+      SMTP_HOST: "localhost"
+      SMTP_PORT: "1025"
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+      <<: *api-env
+      PORT: 3000
+      PUBLIC_URL: http://core-api:3000
+    expose:
+      - "3000"
+    networks:
+      - backend
+
+  core-api-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-gdpr-core-api-ready
+    depends_on:
+      core-api:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://core-api:3000/health >/dev/null; do
+      echo "waiting for core-api..."; sleep 2; done; echo "core-api ready"'
+    networks:
+      - backend
+
+  project-api:
+    image: ${PROJECT_API_IMAGE:-ghcr.io/mairie360/project-api:1.0.0}
+    container_name: bff-dashboard-gdpr-project-api
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      # mairie360_api_lib >= 2.0 refuses the well-known b"secret" without this flag. Throwaway test
+      # stack only: a deployment uses a random secret of at least 32 bytes (MAIR-428).
+      JWT_ALLOW_WEAK_SECRET: "true"
+      <<: *api-env
+      PORT: 3001
+      PUBLIC_URL: http://project-api:3001
+    expose:
+      - "3001"
+    networks:
+      - backend
+
+  project-api-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-gdpr-project-api-ready
+    depends_on:
+      project-api:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://project-api:3001/health >/dev/null; do
+      echo "waiting for project-api..."; sleep 2; done; echo "project-api ready"'
+    networks:
+      - backend
+
+  calendar-api:
+    image: ${CALENDAR_API_IMAGE:-ghcr.io/mairie360/calendar-api:1.0.0}
+    container_name: bff-dashboard-gdpr-calendar-api
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      # mairie360_api_lib >= 2.0 refuses the well-known b"secret" without this flag. Throwaway test
+      # stack only: a deployment uses a random secret of at least 32 bytes (MAIR-428).
+      JWT_ALLOW_WEAK_SECRET: "true"
+      # Lift the API rate limit (MAIR-425): the journey hammers it as one user.
+      RATE_LIMIT_PER_SECOND: "0"
+      <<: *api-env
+      PORT: 3002
+      PUBLIC_URL: http://calendar-api:3002
+    expose:
+      - "3002"
+    networks:
+      - backend
+
+  calendar-api-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-gdpr-calendar-api-ready
+    depends_on:
+      calendar-api:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://calendar-api:3002/health >/dev/null; do
+      echo "waiting for calendar-api..."; sleep 2; done; echo "calendar-api ready"'
+    networks:
+      - backend
+
+  bff-user:
+    image: ${BFF_USER_IMAGE:-ghcr.io/mairie360/bff-user:0.5.0}
+    container_name: bff-dashboard-gdpr-bff-user
+    depends_on:
+      seeder:
+        condition: service_completed_successfully
+      core-api-ready:
+        condition: service_completed_successfully
+    environment:
+      <<: *db-env
+      HOST: "0.0.0.0"
+      PORT: 4000
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: 'b"secret"'
+      CORE_API_URL: http://core-api:3000
+    expose:
+      - "4000"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  bff-user-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-gdpr-bff-user-ready
+    depends_on:
+      bff-user:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://bff-user:4000/health >/dev/null; do
+      echo "waiting for bff-user..."; sleep 2; done; echo "bff-user ready"'
+    networks:
+      - backend
+
+  bff-project:
+    image: ${BFF_PROJECT_IMAGE:-ghcr.io/mairie360/bff-project:0.4.0}
+    container_name: bff-dashboard-gdpr-bff-project
+    depends_on:
+      seeder:
+        condition: service_completed_successfully
+      project-api-ready:
+        condition: service_completed_successfully
+      core-api-ready:
+        condition: service_completed_successfully
+      bff-user-ready:
+        condition: service_completed_successfully
+    environment:
+      <<: *db-env
+      HOST: "0.0.0.0"
+      PORT: 4001
+      REDIS_URL: redis://redis:6379
+      CORE_API_URL: http://core-api:3000
+      PROJECT_API_BASE_PATH: http://project-api:3001
+      USER_BFF_URL: http://bff-user:4000
+    expose:
+      - "4001"
+    networks:
+      - backend
+
+  bff-project-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-gdpr-bff-project-ready
+    depends_on:
+      bff-project:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://bff-project:4001/health >/dev/null; do
+      echo "waiting for bff-project..."; sleep 2; done; echo "bff-project ready"'
+    networks:
+      - backend
+
+  bff-calendar:
+    image: ${BFF_CALENDAR_IMAGE:-ghcr.io/mairie360/bff-calendar:0.4.0}
+    container_name: bff-dashboard-gdpr-bff-calendar
+    depends_on:
+      seeder:
+        condition: service_completed_successfully
+      calendar-api-ready:
+        condition: service_completed_successfully
+      core-api-ready:
+        condition: service_completed_successfully
+    environment:
+      <<: *db-env
+      HOST: "0.0.0.0"
+      PORT: 4002
+      REDIS_URL: redis://redis:6379
+      CORE_API_URL: http://core-api:3000
+      # Service root: bff-calendar >= 0.4.0 calls the /api/v1/... paths of its generated Calendar API client.
+      CALENDAR_API_BASE_PATH: http://calendar-api:3002
+    expose:
+      - "4002"
+    networks:
+      - backend
+
+  bff-calendar-ready:
+    image: curlimages/curl:latest
+    container_name: bff-dashboard-gdpr-bff-calendar-ready
+    depends_on:
+      bff-calendar:
+        condition: service_started
+    command: >
+      sh -c 'until curl -fsS http://bff-calendar:4002/health >/dev/null; do
+      echo "waiting for bff-calendar..."; sleep 2; done; echo "bff-calendar ready"'
+    networks:
+      - backend
+
+  bff-dashboard:
+    image: ${IMAGE_REF:-bff-dashboard:local}
+    container_name: bff-dashboard-gdpr-bff
+    depends_on:
+      bff-user-ready:
+        condition: service_completed_successfully
+      bff-project-ready:
+        condition: service_completed_successfully
+      bff-calendar-ready:
+        condition: service_completed_successfully
+    environment:
+      PORT: 4007
+      USER_BFF_URL: http://bff-user:4000
+      PROJECT_BFF_URL: http://bff-project:4001
+      CALENDAR_BFF_URL: http://bff-calendar:4002
+    expose:
+      - "4007"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4007/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  gdpr-marker:
+    image: node:24-bookworm-slim
+    container_name: bff-dashboard-gdpr-marker
+    user: "${GDPR_UID:-0}:${GDPR_GID:-0}"
+    depends_on:
+      bff-dashboard:
+        condition: service_healthy
+    environment:
+      # Same static admin JWT as the ZAP scan of docker-compose-security.yml (sub=1, the seeded
+      # Admin, role=admin, exp=2100, signed with the throwaway JWT_SECRET b"secret" of the stack).
+      # Public test token of a throwaway stack, not a secret: allowed for Gitleaks.
+      ADMIN_JWT: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIiwiZXhwIjo0MTAyNDQ0ODAwfQ.xCeBe_2QxRlXW8WXr3t6F69wbEHA93HbP_7l4OTJwjA # gitleaks:allow
+    volumes:
+      - ./cicd-repo/tests/gdpr:/engine:ro
+      - ./gdpr-marker.yaml:/journey/gdpr-marker.yaml:ro
+      - ./gdpr-report:/report
+    command: ["/engine/marker/run.sh"]
+    networks:
+      - backend
