@@ -59,6 +59,8 @@ Values below are local examples or explicitly described behavior, not production
 | `CALENDAR_BFF_URL` | http://localhost:4002 | Event source; required (startup fails without it). |
 | `USER_BFF_PORT` / `PROJECT_BFF_PORT` / `CALENDAR_BFF_PORT` | — | Optional ports when absent from the URLs. |
 | `TRUST_PROXY` | unset (no proxy trusted) | Express `trust proxy` (`true`, a hop count such as `1`, or comma-separated addresses/subnets): set it behind the ingress so `req.ip` is the client. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset (telemetry off) | OpenTelemetry collector of the instance, e.g. `http://otel-collector:4318`: traces and HTTP metrics are exported over OTLP (MAIR-504). Only the method, status, parameterised route and upstream host leave the BFF, never a URL, query string, header, id or IP. |
+| `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | `bff-dashboard`; unset | Override the service name; extra resource attributes such as `service.version=<image tag>,deployment.environment.name=prod`. `OTEL_SDK_DISABLED=true` turns telemetry off. |
 
 ## Routes and data contract
 
