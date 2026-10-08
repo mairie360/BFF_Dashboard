@@ -1,5 +1,7 @@
 // First line: load .env before any module reads the environment.
 import 'dotenv/config';
+// Before the app: OpenTelemetry must hook Express before it is loaded (MAIR-504).
+import './telemetry';
 import type { Server } from 'node:http';
 import { assertConfigured } from '@mairie360/bffs-lib';
 import app from './app';
