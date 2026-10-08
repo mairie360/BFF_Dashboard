@@ -1,0 +1,25 @@
+# GDPR log marker journey (MAIR-290), played by mairie360/CICD tests/gdpr/marker.
+#
+# The dashboard only reads: its bootstrap aggregates the caller's profile, projects and events
+# from BFF User, BFF Project and BFF Calendar, whose own marker tests write the marker into those
+# records. Here the marker's values reach the BFF through a query string (a request logger that
+# prints the URL would leak it) and an invalid token; the logs of every container of
+# docker-compose-gdpr-marker.yml (the BFF, the upstream BFFs and APIs, Postgres, Redis) are then
+# searched for them (see gdpr_marker_test.sh). A log describes an error by its type and context,
+# never by the value it received.
+version: 1
+target: http://bff-dashboard:4007
+wait: /health
+# The admin JWT of the stack (sub=1, the seeded Admin), the same one the ZAP scan uses.
+env: [ADMIN_JWT]
+steps:
+  - name: read the bootstrap
+    request: {method: GET, path: /dashboard/bootstrap, headers: {Authorization: "Bearer {{env.ADMIN_JWT}}"}}
+  - name: read the bootstrap with a query string holding the marker
+    request: {method: GET, path: "/dashboard/bootstrap?search={{marker.email}}&name={{marker.first_name}}+{{marker.last_name}}&phone={{marker.phone}}", headers: {Authorization: "Bearer {{env.ADMIN_JWT}}"}}
+  - name: read the bootstrap with an invalid token (deliberate error)
+    request: {method: GET, path: "/dashboard/bootstrap?search={{marker.email}}", headers: {Authorization: "Bearer {{marker.password}}"}}
+    expect: [401]
+  - name: read a route that does not exist (deliberate error)
+    request: {method: GET, path: "/dashboard/{{marker.last_name}}?email={{marker.email}}", headers: {Authorization: "Bearer {{env.ADMIN_JWT}}"}}
+    expect: [404]
