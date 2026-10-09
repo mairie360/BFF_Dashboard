@@ -177,7 +177,7 @@ services:
       - backend
 
   calendar-api:
-    image: ${CALENDAR_API_IMAGE:-ghcr.io/mairie360/calendar-api:dev-a8fee1b}
+    image: ${CALENDAR_API_IMAGE:-ghcr.io/mairie360/calendar-api:dev-608d3d3}
     container_name: bff-dashboard-sec-calendar-api
     depends_on:
       liquibase:
