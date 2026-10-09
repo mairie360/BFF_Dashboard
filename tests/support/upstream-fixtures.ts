@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { getBffCalendar } from '@mairie360/bff-calendar-openapi/endpoints/bffCalendar';
 import {
   type CalendarBootstrapResponse,
@@ -8,7 +9,7 @@ import {
 } from '@mairie360/bff-calendar-openapi/model';
 import { getBffProject } from '@mairie360/bff-project-openapi/endpoints/bffProject';
 import {
-  type ApiError as ProjectBffError,
+  type ErrorResponse as ProjectBffError,
   type Person,
   type ProjectDetailsResponse,
   type ProjectListItem,
@@ -125,8 +126,8 @@ export function projectDetailsResponse(project: ProjectListItem, taskItems: Proj
   return { project, taskItems };
 }
 
-/** Corps d'erreur de BFF Project (ApiError de son contrat). */
-export function projectApiError(code: string, message: string): ProjectBffError {
+/** Error body of BFF Project (`ErrorResponse` of its contract). */
+export function projectApiError(code: ProjectBffError['error']['code'], message: string): ProjectBffError {
   return { error: { code, message, details: [] } };
 }
 
@@ -157,4 +158,16 @@ export function calendarBootstrapResponse(events: CalendarEvent[]): CalendarBoot
     currentUser: { id: 2, name: 'Alice Martin', email: 'alice.martin@mairie.test', groupIds: [1] },
     assigneeScope: CalendarBootstrapResponseAssigneeScope.self,
   };
+}
+
+// --- Session ---
+
+/** Secret of the tests (tests/support/env.ts): the BFF verifies the session tokens with it (bffs-lib requireSession). */
+export const JWT_SECRET = 'dashboard-contract-test-secret';
+
+/** HS256 session token of `sub` signed with `secret` (fixed expiry, so a token is the same in every call). */
+export function sessionToken(sub: string | number, secret = JWT_SECRET, exp = 4_102_444_800): string {
+  const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const unsigned = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: String(sub), exp })}`;
+  return `${unsigned}.${createHmac('sha256', secret).update(unsigned).digest('base64url')}`;
 }

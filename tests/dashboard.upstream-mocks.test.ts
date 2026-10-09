@@ -8,7 +8,7 @@ import type { CalendarEvent } from '@mairie360/bff-calendar-openapi/model';
 import type { ProjectListItem, ProjectTask } from '@mairie360/bff-project-openapi/model';
 import {
   calendarBffUrls, calendarBootstrapResponse, calendarEvent, projectApiError, projectBffUrls, projectDetailsResponse, projectListItem,
-  projectsPageResponse, sessionResponse, taskItem, userBffUrls,
+  projectsPageResponse, sessionResponse, sessionToken, taskItem, userBffUrls,
 } from './support/upstream-fixtures';
 
 // /dashboard/bootstrap testé contre de vrais serveurs HTTP simulant BFF User, BFF Project et
@@ -30,7 +30,9 @@ const CALENDAR_BFF = { bootstrap: '/calendar/bootstrap' } as const;
 const dashboardContract = OpenApiContract.load(path.join(__dirname, '..', 'contracts', 'openapi.json'));
 const publishedDashboardContract = loadOrvalContract('@mairie360/bff-dashboard-openapi');
 
-const SESSION = 'Bearer contract-session-token';
+// Session of user 2 signed with the test secret: verified by the BFF, forwarded unchanged upstream.
+const TOKEN = sessionToken(2);
+const SESSION = `Bearer ${TOKEN}`;
 const DAY_MS = 86_400_000;
 
 beforeAll(async () => { await Promise.all(mocks.map((mock) => mock.start())); });
@@ -253,9 +255,9 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
     });
 
     test.each([
-      ['an accessToken cookie', { Cookie: 'accessToken=contract-session-token' }],
-      ['a session cookie', { Cookie: 'session=contract-session-token' }],
-      ['an x-session-token header', { 'x-session-token': 'contract-session-token' }],
+      ['an accessToken cookie', { Cookie: `accessToken=${TOKEN}` }],
+      ['a session cookie', { Cookie: `session=${TOKEN}` }],
+      ['an x-session-token header', { 'x-session-token': TOKEN }],
     ])('ignores %s: only the Bearer header is a session (401, no upstream call, not cached)', async (_label, headers) => {
       mockUpstreams();
 
@@ -278,7 +280,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
     test('forwards the token normalised to `Bearer <token>` whatever the scheme case and spacing', async () => {
       mockUpstreams();
 
-      const response = await bootstrap('bearer   contract-session-token');
+      const response = await bootstrap(`bearer   ${TOKEN}`);
 
       expect(response.status).toBe(200);
       const forwarded = mocks.flatMap((mock) => mock.requests).map((call) => call.headers.authorization);
