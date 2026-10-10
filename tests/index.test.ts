@@ -24,6 +24,17 @@ describe('start()', () => {
     expect(() => start(0)).toThrow('Missing or invalid upstream configuration: USER_BFF_URL, CALENDAR_BFF_URL');
   });
 
+  test('throws before listening without JWT_SECRET, which verifies the sessions', () => {
+    for (const service of UPSTREAM_SERVICES) process.env[`${service}_URL`] = `${service.toLowerCase()}.internal`;
+    const secret = process.env.JWT_SECRET;
+    delete process.env.JWT_SECRET;
+    try {
+      expect(() => start(0)).toThrow('Missing configuration: JWT_SECRET');
+    } finally {
+      process.env.JWT_SECRET = secret;
+    }
+  });
+
   test('listens once every upstream is configured', async () => {
     for (const service of UPSTREAM_SERVICES) process.env[`${service}_URL`] = `${service.toLowerCase()}.internal`;
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);

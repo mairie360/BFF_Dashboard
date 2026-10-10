@@ -8,6 +8,9 @@ services:
       USER_BFF_URL: ${USER_BFF_URL:-http://host.docker.internal:4000}
       PROJECT_BFF_URL: ${PROJECT_BFF_URL:-http://host.docker.internal:4001}
       CALENDAR_BFF_URL: ${CALENDAR_BFF_URL:-http://host.docker.internal:4002}
+      # Must be the JWT_SECRET of the upstream services: the BFF verifies the session tokens with it
+      # (bffs-lib requireSession, MAIR-474) and refuses to start without it.
+      JWT_SECRET: ${JWT_SECRET:-b"secret"}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

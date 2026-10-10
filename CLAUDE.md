@@ -43,7 +43,7 @@ Isolated perf/security stacks (need Docker + GHCR pull access for the upstream i
 Each stack brings up the **full real upstream chain** — postgres + liquibase + seeder
 (`init-test.sql`, user id 2) + redis + core/project/calendar APIs + bff-user/bff-project/bff-calendar
 + this BFF — then runs k6 (`load-test.js`) or ZAP against `/dashboard/bootstrap`. Test JWTs are
-HS256 signed with `JWT_SECRET=secret`, `sub=2`. The BFF under test is never built by the compose files:
+HS256 signed with the random `JWT_SECRET` that `stack_secrets.sh` generates for each run (ZAP: `ADMIN_JWT`, `sub=1`; k6: random seeded agents). The BFF under test is never built by the compose files:
 they run `IMAGE_REF` (CI passes the image `release-dev` just pushed); with `IMAGE_REF` empty the scripts
 build `bff-dashboard:local` from `development.Dockerfile` first.
 
@@ -51,14 +51,16 @@ build `bff-dashboard:local` from `development.Dockerfile` first.
 
 **Request entry:** `src/index.ts` (`import 'dotenv/config'` first, then `start()`: `assertConfigured(UPSTREAM_SERVICES)` fails fast on a missing/invalid `*_URL`, under `require.main === module`) → `src/app.ts`. `app.ts` mounts the lib's `securityHeaders` + `apiOnlyHeaders()` (strict CSP everywhere but `/docs`), `trust proxy` (`TRUST_PROXY`), the JSON body parser (no multipart parser: nothing reads a raw body),
 Swagger UI at `/docs`, the spec at `/openapi.json` and `/swagger.json`, and the three routers
-(`health`, `check_apis`, `dashboard`). `/dashboard/*` responses get `Cache-Control: no-store` (lib `noStore`) and require a Bearer token (lib `requireBearer`).
+(`health`, `check_apis`, `dashboard`). `/dashboard/*` responses get `Cache-Control: no-store` (lib `noStore`) and require a session token (lib `requireSession`).
 
 **Upstream calls:** all outbound requests go through `src/clients/upstreams.ts`.
 - lib `baseUrl(service)` resolves `process.env[`${service}_URL`]` (e.g. `USER_BFF_URL`) on every call,
   optionally appending `${service}_PORT`. Missing/invalid config → `HttpError(503)`; no `localhost` default.
-- The session is the `Authorization: Bearer <token>` header only (lib `authorization` / `requireBearer`;
-  cookies and `x-session-token` are ignored). `app.ts` mounts `noStore, requireBearer` on `/dashboard`, so a
-  request without one gets a 401 before any upstream call; the token is forwarded, normalised to
+- The session is the `Authorization: Bearer <token>` header only (lib `authorization` / `requireSession`;
+  cookies and `x-session-token` are ignored). `app.ts` mounts `noStore, requireSession` on `/dashboard`, so a
+  request without a token signed with `JWT_SECRET` (HS256, numeric `sub`, not expired) gets a 401 before any
+  upstream call (`start()` refuses to run without `JWT_SECRET`; `tests/token-refusals.test.ts` sweeps forged
+  tokens over every secured operation of the contract, with a genuine-token control); the token is forwarded, normalised to
   `Bearer <token>`, to every upstream BFF. `trust proxy` comes from `TRUST_PROXY` (lib `parseTrustProxy`).
 - `src/clients/upstreams.ts` only wraps the generated `@mairie360/bff-*-openapi` clients (axios, `Accept`
   header). Each call in `src/routes/dashboard.ts` uses the lib: `asCaller('<SERVICE>', req)` for the options
@@ -111,8 +113,10 @@ the pinned `cicd_version` (`CICD_VERSION=<branch>` overrides it). ZAP runs its `
 non-401/403 answer. The spec requires `bearerAuth` at the top level (`openapi.ts`); `/health` and
 `/check_apis` set `security: []`. `load-test.js` builds on `coverage.js` with **one handler per
 operation** of `contracts/openapi.json` (mounted by `docker-compose-performance.yml`): a new route
-without a handler makes k6 abort at init. Every operation is a read, so one `reads` scenario (ramp to
-20 VUs) runs `coverage.run()`; each operation gets a `p(95)` threshold from `budgetOf`.
+without a handler makes k6 abort at init. Every operation is a read, so one `reads` scenario runs `coverage.run()` as random seeded agents;
+each operation gets a `p(95)` threshold from `budgetOf`.
+
+MAIR-474: both scripts source `stack_secrets.sh` (a random `JWT_SECRET` per run, `ADMIN_JWT` for the ZAP replacer), drop the volumes before and after a run, exit 1 when a dependency does not start, and `performance_test.sh` pins the stack to `min(PERF_CPUS, nproc)` CPUs (4 by default). `.zap/rules.tsv` no longer ignores rule `100000` (server errors). The perf seeder also runs `init-perf-project.sql` and `init-perf-calendar.sql`, BFF_Project's and BFF_Calendar's copies of the Project_API / Calendar_API volume seeds (keep them in step); the reads run as random agents `100001`-`102000` and check their own first name, at least 2 projects and every source available; `bootstrap_rush` sends `GET /dashboard/bootstrap` at a fixed rate; thresholds are strict (`checks == 100%`, `http_req_failed == 0`, `dropped_iterations == 0`); `K6_PROFILE` is `ci` (default: 20 VUs, rush 10/s) or `stress` (60 VUs, 30/s).
 
 ## Conventions & gotchas
 
@@ -135,7 +139,7 @@ without a handler makes k6 abort at init. Every operation is a read, so one `rea
 ## Environment
 
 Copy `.env.example` to `.env`: `PORT` (default 4007), `USER_BFF_URL`, `PROJECT_BFF_URL`,
-`CALENDAR_BFF_URL`. Optional `*_BFF_PORT` counterparts.
+`CALENDAR_BFF_URL`, `JWT_SECRET` (required, the upstreams' secret). Optional `*_BFF_PORT` counterparts.
 
 ## Pull request reviewers
 
