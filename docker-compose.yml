@@ -5,9 +5,10 @@ services:
       - "4007:4007"
     environment:
       PORT: 4007
-      USER_BFF_URL: ${USER_BFF_URL:-http://host.docker.internal:4000}
-      PROJECT_BFF_URL: ${PROJECT_BFF_URL:-http://host.docker.internal:4001}
-      CALENDAR_BFF_URL: ${CALENDAR_BFF_URL:-http://host.docker.internal:4002}
+      # The APIs, never another BFF (MAIR-525).
+      CORE_API_URL: ${CORE_API_URL:-http://host.docker.internal:3000}
+      PROJECT_API_URL: ${PROJECT_API_URL:-http://host.docker.internal:3001}
+      CALENDAR_API_URL: ${CALENDAR_API_URL:-http://host.docker.internal:3002}
       # Must be the JWT_SECRET of the upstream services: the BFF verifies the session tokens with it
       # (bffs-lib requireSession, MAIR-474) and refuses to start without it.
       JWT_SECRET: ${JWT_SECRET:-b"secret"}

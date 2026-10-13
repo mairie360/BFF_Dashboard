@@ -45,7 +45,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Checks that the three upstream BFFs are reachable */
+        /** Checks that the three upstream APIs are reachable */
         get: {
             parameters: {
                 query?: never;
@@ -55,7 +55,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Every upstream BFF answered its /health operation */
+                /** @description Every upstream API answered its /health operation */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -64,7 +64,7 @@ export interface paths {
                         "application/json": components["schemas"]["CheckApisResponse"];
                     };
                 };
-                /** @description At least one upstream BFF is unreachable or not configured */
+                /** @description At least one upstream API is unreachable or not configured */
                 502: {
                     headers: {
                         [name: string]: unknown;
@@ -99,7 +99,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Data from the same BFFs as the business pages, within the session scope */
+                /** @description Data read from Core API, Project API and Calendar API in one parallel wave, within the session scope */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -108,7 +108,7 @@ export interface paths {
                         "application/json": components["schemas"]["DashboardBootstrap"];
                     };
                 };
-                /** @description Missing or invalid session, or session refused by an upstream BFF */
+                /** @description Missing or invalid session, or session refused by an upstream API */
                 401: {
                     headers: {
                         [name: string]: unknown;
@@ -117,7 +117,7 @@ export interface paths {
                         "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
-                /** @description User context unavailable: BFF User unreachable, failed or answered an invalid body */
+                /** @description User profile unavailable: Core API unreachable, failed or answered an invalid body */
                 502: {
                     headers: {
                         [name: string]: unknown;
@@ -126,7 +126,7 @@ export interface paths {
                         "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
-                /** @description An upstream BFF is not configured */
+                /** @description An upstream API is not configured */
                 503: {
                     headers: {
                         [name: string]: unknown;
@@ -164,11 +164,11 @@ export interface components {
             /** @enum {string} */
             status: "OK" | "Error";
             /** @enum {string} */
-            user_bff: "Connected" | "Unreachable";
+            core_api: "Connected" | "Unreachable";
             /** @enum {string} */
-            project_bff: "Connected" | "Unreachable";
+            project_api: "Connected" | "Unreachable";
             /** @enum {string} */
-            calendar_bff: "Connected" | "Unreachable";
+            calendar_api: "Connected" | "Unreachable";
         };
         DashboardBootstrap: {
             userFirstName: string;

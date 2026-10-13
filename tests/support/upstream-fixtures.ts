@@ -1,173 +1,91 @@
 import { createHmac } from 'node:crypto';
-import { getBffCalendar } from '@mairie360/bff-calendar-openapi/endpoints/bffCalendar';
+import { getCalendarAPIMairie360 } from '@mairie360/calendar-api-openapi/endpoints/calendarAPIMairie360';
+import { EventCategory, EventVisibility, type EventView, type GetCalendarResultView } from '@mairie360/calendar-api-openapi/model';
+import { getCoreAPIMairie360 } from '@mairie360/core-api-openapi/endpoints/coreAPIMairie360';
+import type { GetMeResponseView } from '@mairie360/core-api-openapi/model';
+import { getProjectAPIMairie360 } from '@mairie360/project-api-openapi/endpoints/projectAPIMairie360';
 import {
-  type CalendarBootstrapResponse,
-  CalendarBootstrapResponseAssigneeScope,
-  type CalendarEvent,
-  CalendarEventApprovalStatus,
-  CalendarEventCategory,
-} from '@mairie360/bff-calendar-openapi/model';
-import { getBffProject } from '@mairie360/bff-project-openapi/endpoints/bffProject';
-import {
-  type ErrorResponse as ProjectBffError,
-  type Person,
-  type ProjectDetailsResponse,
-  type ProjectListItem,
-  ProjectListItemPriority,
-  ProjectListItemStatus,
-  type ProjectsPageResponse,
-  ProjectsPageResponseAccessRole,
-  ProjectsPageResponseAccessScope,
-  ProjectsPageResponseKanbanColumnsItemStatus,
-  ProjectsPageResponsePageDefaultView,
-  ProjectsPageResponsePageViewsItemValue,
-  type ProjectTask,
-  ProjectTaskPriority,
-  ProjectTaskStatus,
-} from '@mairie360/bff-project-openapi/model';
-import { getBffUser } from '@mairie360/bff-user-openapi/endpoints/bffUser';
-import type { SessionResponse, SessionResponseUser } from '@mairie360/bff-user-openapi/model';
+  type GetProjectsResultView,
+  type GetTasksResultView,
+  type ProjectListItemView,
+  ProjectStatus,
+  TaskPriority,
+  TaskStatus,
+  type TaskView,
+} from '@mairie360/project-api-openapi/model';
 
-// Jeux de données typés par les modèles des paquets @mairie360/bff-*-openapi installés : un champ ajouté, retiré ou
-// renommé par un contrat amont fait échouer la compilation des tests. Les valeurs sont en plus validées à l'exécution
-// contre les contrats reconstruits (upstream-contracts.test.ts, mocks HTTP). Les champs non lus par le dashboard sont
-// présents parce que les modèles les exigent : ils doivent être ignorés.
+// Upstream bodies typed by the models of the installed @mairie360/*-api-openapi packages: a field added, removed or
+// renamed by an API contract breaks the compilation of the tests. They are also validated at run time against the
+// rebuilt contracts (upstream-contracts.test.ts, HTTP mocks). Fields the dashboard does not read are present because
+// the models require them: they must be ignored. MAIR-525: the dashboard reads the APIs, never another BFF.
 
-/** Chemins des opérations amont, tels que les construisent les clients générés (helpers `get*Url`). */
-export const userBffUrls = getBffUser();
-export const projectBffUrls = getBffProject();
-export const calendarBffUrls = getBffCalendar();
+/** Paths of the upstream operations, as the generated clients build them (`get*Url` helpers). */
+export const coreApiUrls = getCoreAPIMairie360();
+export const projectApiUrls = getProjectAPIMairie360();
+export const calendarApiUrls = getCalendarAPIMairie360();
 
-export const person = (id: string, name = `Agent ${id}`): Person => ({ id, name, avatarUrl: null });
-
-export function sessionResponse(user: Partial<SessionResponseUser> = {}): SessionResponse {
+/** Body of Core `GET /api/v1/user/me/` for user 2 (Alice). */
+export function coreMe(fields: Partial<GetMeResponseView> = {}): GetMeResponseView {
   return {
-    user: { id: 2, first_name: 'Alice', last_name: 'Martin', email: 'alice.martin@mairie.test', phone: null, status: 'active', role: 'User', ...user },
-    groups: [{ id: 1, name: 'Service urbanisme', owner_id: 1, description: null }],
-    roles: [{ id: 3, name: 'User' }],
+    first_name: 'Alice', last_name: 'Martin', email: 'alice.martin@mairie.test', phone: null, status: 'active',
+    role: 'User', roles: ['User'], groups: [{ id: 1, name: 'Service urbanisme', owner_id: 1, description: null }],
+    ...fields,
   };
 }
 
-export function projectListItem(overrides: Partial<ProjectListItem> = {}): ProjectListItem {
+/** A project of `GET /api/v1/projects/` with the aggregates of its tasks. */
+export function projectListItem(id: number, overrides: Partial<ProjectListItemView> = {}): ProjectListItemView {
   return {
-    id: 'project-1',
-    title: 'Rénovation de la médiathèque',
-    description: 'Travaux de mise aux normes',
-    status: ProjectListItemStatus['in-progress'],
-    statusLabel: 'En cours',
-    priority: ProjectListItemPriority.high,
-    priorityLabel: 'Haute',
-    responsible: person('user-2', 'Alice Martin'),
-    assignees: [person('user-3')],
-    labels: ['travaux'],
-    progress: 40,
-    dueDate: '2026-12-01',
-    createdAt: '2026-01-10T08:00:00Z',
-    tasks: { total: 3, completed: 1 },
-    permissions: { canView: true, canEdit: false, canDuplicate: false, canDelete: false, canCreateTask: false, canAssignMembers: false, canClose: false },
+    id, name: `Projet ${id}`, description: `Description du projet ${id}`, status: ProjectStatus.Active,
+    tasks_total: 0, tasks_completed: 0, priority: TaskPriority.Medium, due_date: null, members: [], members_total: 0,
     ...overrides,
   };
 }
 
-export function projectsPageResponse(projects: ProjectListItem[], totalProjects = projects.length): ProjectsPageResponse {
+/** A page of `GET /api/v1/projects/`; `total` counts every visible project, beyond the page. */
+export function projectsResult(projects: ProjectListItemView[], total = projects.length): GetProjectsResultView {
   return {
-    access: {
-      role: ProjectsPageResponseAccessRole.User,
-      scope: ProjectsPageResponseAccessScope.assigned,
-      canCreateProject: false,
-      canManageProjects: false,
-      canManageTasks: false,
-      canUpdateAssignedTaskStatus: true,
-      canCommentTasks: true,
-    },
-    page: {
-      title: 'Projets',
-      subtitle: 'Suivi des projets',
-      defaultView: ProjectsPageResponsePageDefaultView.grid,
-      views: [{ value: ProjectsPageResponsePageViewsItemValue.grid, label: 'Grille' }],
-    },
-    filters: { search: null, status: 'all', priority: 'all', statuses: [{ label: 'Tous', value: 'all' }], priorities: [{ label: 'Toutes', value: 'all' }] },
-    options: { members: [{ label: 'Alice Martin', value: 'user-2', name: 'Alice Martin', avatarUrl: null }], labels: [{ label: 'Travaux', value: 'travaux' }] },
-    summary: { totalProjects, projectsByStatus: { 'in-progress': projects.length }, projectsByPriority: { high: projects.length } },
-    kanban: {
-      columns: [{
-        status: ProjectsPageResponseKanbanColumnsItemStatus['in-progress'],
-        label: 'En cours',
-        projectIds: projects.map((project) => project.id),
-        count: projects.length,
-      }],
-    },
     projects,
-    pagination: { page: 1, limit: 6, total: totalProjects, hasNextPage: totalProjects > projects.length },
+    total,
+    summary: {
+      by_status: { active: projects.length, suspended: 0, completed: 0, other: 0 },
+      by_priority: { low: 0, medium: projects.length, high: 0 },
+    },
   };
 }
 
-export function taskItem(overrides: Partial<ProjectTask> = {}): ProjectTask {
+export function taskView(id: number, overrides: Partial<TaskView> = {}): TaskView {
   return {
-    id: 'task-1',
-    title: 'Valider le devis',
-    status: ProjectTaskStatus.todo,
-    statusLabel: 'À faire',
-    responsible: person('user-2', 'Alice Martin'),
-    assignees: [],
-    priority: ProjectTaskPriority.medium,
-    priorityLabel: 'Moyenne',
-    labels: [],
-    dueDate: '2026-10-01',
-    completed: false,
-    createdAt: '2026-01-11T08:00:00Z',
-    updatedAt: '2026-01-12T08:00:00Z',
-    permissions: { canView: true, canEdit: false, canDelete: false, canUpdateStatus: true, canComment: true },
-    ...overrides,
+    id, title: `Tâche ${id}`, description: '', status: TaskStatus.Todo, priority: TaskPriority.Medium,
+    due_date: '2026-10-01T00:00:00Z', assigned_to: null, fields: [], ...overrides,
   };
 }
 
-export function projectDetailsResponse(project: ProjectListItem, taskItems: ProjectTask[]): ProjectDetailsResponse {
-  return { project, taskItems };
-}
+/** `GET /api/v1/projects/{id}/tasks/`. */
+export const tasksResult = (tasks: TaskView[]): GetTasksResultView => ({ tasks, total: tasks.length });
 
-/** Error body of BFF Project (`ErrorResponse` of its contract). */
-export function projectApiError(code: ProjectBffError['error']['code'], message: string): ProjectBffError {
-  return { error: { code, message, details: [] } };
-}
-
-export function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
+/** An event of `GET /api/v1/calendar` (list view: no members). `start` / `end` are UTC instants. */
+export function eventView(id: number, overrides: Partial<EventView> = {}): EventView {
   return {
-    id: 1,
-    title: 'Conseil municipal',
-    date: '2026-09-20',
-    endDate: '2026-09-20',
-    category: CalendarEventCategory.meeting,
-    service: 'direction',
-    startTime: '18:00',
-    endTime: '20:00',
-    location: 'Salle du conseil',
-    assigneeIds: [2],
-    approvalStatus: CalendarEventApprovalStatus.approved,
-    canEdit: false,
-    ...overrides,
+    id, name: `Événement ${id}`, start: '2026-09-20T16:00:00Z', end: '2026-09-20T18:00:00Z',
+    category: EventCategory.meeting, visibility: EventVisibility.Public, is_member: true, location: null, service: null,
+    recurrence: null, ...overrides,
   };
 }
 
-export function calendarBootstrapResponse(events: CalendarEvent[]): CalendarBootstrapResponse {
-  return {
-    events,
-    assignees: [{ id: 2, name: 'Alice Martin', email: 'alice.martin@mairie.test' }],
-    categories: [{ label: 'Réunion', value: CalendarEventCategory.meeting }],
-    services: [{ label: 'Direction générale', value: 'direction' }],
-    currentUser: { id: 2, name: 'Alice Martin', email: 'alice.martin@mairie.test', groupIds: [1] },
-    assigneeScope: CalendarBootstrapResponseAssigneeScope.self,
-  };
-}
+export const calendarResult = (events: EventView[]): GetCalendarResultView => ({ events });
 
 // --- Session ---
 
 /** Secret of the tests (tests/support/env.ts): the BFF verifies the session tokens with it (bffs-lib requireSession). */
 export const JWT_SECRET = 'dashboard-contract-test-secret';
 
-/** HS256 session token of `sub` signed with `secret` (fixed expiry, so a token is the same in every call). */
-export function sessionToken(sub: string | number, secret = JWT_SECRET, exp = 4_102_444_800): string {
+/**
+ * HS256 session token of `sub` signed with `secret` (fixed expiry, so a token is the same in every call). `claims`
+ * adds claims, such as the `roles` Core signs (MAIR-529); without it the token predates that claim.
+ */
+export function sessionToken(sub: string | number, secret = JWT_SECRET, exp = 4_102_444_800, claims: object = {}): string {
   const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
-  const unsigned = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: String(sub), exp })}`;
+  const unsigned = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: String(sub), exp, ...claims })}`;
   return `${unsigned}.${createHmac('sha256', secret).update(unsigned).digest('base64url')}`;
 }
