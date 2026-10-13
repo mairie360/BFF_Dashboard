@@ -63,7 +63,7 @@ beforeAll(async () => {
     });
     await new Promise<void>((resolve) => core.listen(0, '127.0.0.1', resolve));
     const upstream = `http://127.0.0.1:${(core.address() as AddressInfo).port}`;
-    for (const service of ['USER_BFF', 'PROJECT_BFF', 'CALENDAR_BFF']) {
+    for (const service of ['CORE_API', 'PROJECT_API', 'CALENDAR_API']) {
       process.env[`${service}_URL`] = upstream;
       delete process.env[`${service}_PORT`];
     }

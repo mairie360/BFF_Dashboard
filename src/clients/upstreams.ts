@@ -1,13 +1,13 @@
-import { getBffCalendar } from '@mairie360/bff-calendar-openapi/endpoints/bffCalendar';
-import { getBffProject } from '@mairie360/bff-project-openapi/endpoints/bffProject';
-import { getBffUser } from '@mairie360/bff-user-openapi/endpoints/bffUser';
+import { getCalendarAPIMairie360 } from '@mairie360/calendar-api-openapi/endpoints/calendarAPIMairie360';
+import { getCoreAPIMairie360 } from '@mairie360/core-api-openapi/endpoints/coreAPIMairie360';
+import { getProjectAPIMairie360 } from '@mairie360/project-api-openapi/endpoints/projectAPIMairie360';
 import axios from 'axios';
 
-// The upstream BFFs are only called through the operations of their published contracts
-// (@mairie360/bff-user-openapi, bff-project-openapi, bff-calendar-openapi). The base URL and the
-// session are given per call by the lib's `asCaller` / `withoutSession`; the instance only sets headers.
+// The dashboard reads the APIs directly, never another BFF (MAIR-525), through the operations of their published
+// contracts (@mairie360/core-api-openapi, project-api-openapi, calendar-api-openapi). The base URL and the session
+// are given per call by the lib's `asCaller` / `withoutSession`; the instance only sets headers.
 const upstreamAxios = axios.create({ headers: { Accept: 'application/json' } });
 
-export const userBff = getBffUser(upstreamAxios);
-export const projectBff = getBffProject(upstreamAxios);
-export const calendarBff = getBffCalendar(upstreamAxios);
+export const coreApi = getCoreAPIMairie360(upstreamAxios);
+export const projectApi = getProjectAPIMairie360(upstreamAxios);
+export const calendarApi = getCalendarAPIMairie360(upstreamAxios);

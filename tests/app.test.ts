@@ -78,7 +78,7 @@ describe('application fallbacks', () => {
 describe('GET /check_apis', () => {
   let healthy: http.Server;
   let healthyUrl: string;
-  const services = ['USER_BFF_URL', 'PROJECT_BFF_URL', 'CALENDAR_BFF_URL'] as const;
+  const services = ['CORE_API_URL', 'PROJECT_API_URL', 'CALENDAR_API_URL'] as const;
   const saved = Object.fromEntries(services.map((name) => [name, process.env[name]]));
 
   beforeAll(async () => {
@@ -115,26 +115,26 @@ describe('GET /check_apis', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
-      status: 'OK', user_bff: 'Connected', project_bff: 'Connected', calendar_bff: 'Connected',
+      status: 'OK', core_api: 'Connected', project_api: 'Connected', calendar_api: 'Connected',
     });
     expectCheckApisContract(response);
   });
 
   test('answers 502 when a service is not configured or not healthy', async () => {
-    process.env.USER_BFF_URL = healthyUrl;
-    process.env.PROJECT_BFF_URL = `${healthyUrl}/down`;
-    delete process.env.CALENDAR_BFF_URL;
+    process.env.CORE_API_URL = healthyUrl;
+    process.env.PROJECT_API_URL = `${healthyUrl}/down`;
+    delete process.env.CALENDAR_API_URL;
 
     const response = await request(app).get('/check_apis');
 
     expect(response.status).toBe(502);
     expect(response.body).toEqual({
-      status: 'Error', user_bff: 'Connected', project_bff: 'Unreachable', calendar_bff: 'Unreachable',
+      status: 'Error', core_api: 'Connected', project_api: 'Unreachable', calendar_api: 'Unreachable',
     });
     expectCheckApisContract(response);
     expect(warnSpy.mock.calls.map(([message]) => String(message))).toEqual([
-      expect.stringContaining('project_bff unreachable'),
-      expect.stringContaining('calendar_bff unreachable: The CALENDAR_BFF service is not configured.'),
+      expect.stringContaining('project_api unreachable'),
+      expect.stringMatching(/calendar_api unreachable: .*The CALENDAR_API service is not configured\./),
     ]);
   });
 
@@ -147,7 +147,7 @@ describe('GET /check_apis', () => {
 
     expect(response.status).toBe(502);
     expect(response.body).toEqual({
-      status: 'Error', user_bff: 'Unreachable', project_bff: 'Unreachable', calendar_bff: 'Unreachable',
+      status: 'Error', core_api: 'Unreachable', project_api: 'Unreachable', calendar_api: 'Unreachable',
     });
     expect(calls).toBe(0);
   });

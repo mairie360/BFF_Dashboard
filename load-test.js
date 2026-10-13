@@ -14,7 +14,7 @@ import { createCoverage } from '/coverage.js';
 // to the BFF therefore means adding its handler here.
 //
 // The BFF only exposes reads (/health, /check_apis and the /dashboard/bootstrap aggregation, which
-// fans out to BFF User, BFF Project and BFF Calendar). Two scenarios:
+// reads Core API, Project API and Calendar API in one parallel wave, MAIR-525). Two scenarios:
 // - `reads`: `coverage.run()` calls every handler once per iteration as a random seeded agent, so it
 //   carries the coverage gate;
 // - `bootstrap_rush`: `GET /dashboard/bootstrap` at a fixed arrival rate, failing on any dropped

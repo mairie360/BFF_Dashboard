@@ -13,15 +13,16 @@ describe('start()', () => {
   });
 
   test('checks every upstream the BFF calls', () => {
-    expect(UPSTREAM_SERVICES).toEqual(['USER_BFF', 'PROJECT_BFF', 'CALENDAR_BFF']);
+    // MAIR-525: the APIs, never another BFF.
+    expect(UPSTREAM_SERVICES).toEqual(['CORE_API', 'PROJECT_API', 'CALENDAR_API']);
   });
 
   test('throws before listening, naming every missing or invalid upstream URL', () => {
     for (const name of names) delete process.env[name];
-    process.env.PROJECT_BFF_URL = 'http://bff-project:4001';
-    process.env.CALENDAR_BFF_URL = 'http://bad host';
+    process.env.PROJECT_API_URL = 'http://project-api:3001';
+    process.env.CALENDAR_API_URL = 'http://bad host';
 
-    expect(() => start(0)).toThrow('Missing or invalid upstream configuration: USER_BFF_URL, CALENDAR_BFF_URL');
+    expect(() => start(0)).toThrow('Missing or invalid upstream configuration: CORE_API_URL, CALENDAR_API_URL');
   });
 
   test('throws before listening without JWT_SECRET, which verifies the sessions', () => {

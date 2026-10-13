@@ -10,7 +10,7 @@ Après la résolution de l’identité, les sources Project et Calendar sont int
 
 ## Données et persistance
 
-BFF User `/me` fournit l’identité. BFF Project fournit `/projects-page?page=1&limit=6` puis les détails de chaque projet pour les tâches. BFF Calendar fournit le bootstrap de la période. Le BFF ne dispose pas de base propre ni de mutations métier.
+Le dashboard lit les API, jamais un autre BFF (MAIR-525), en une seule vague parallèle : Core API `GET /api/v1/user/me/` fournit le prénom (et les rôles d’un jeton émis avant la claim `roles`), Project API `GET /api/v1/projects/?limit=6` les premiers projets et leur total, chacun suivi aussitôt de ses tâches (`GET /api/v1/projects/{id}/tasks/`, au plus 6 listes tant que Project API n’offre pas les tâches de l’appelant en un appel), et Calendar API `GET /api/v1/calendar` les événements des 30 prochains jours. Les tâches suivent la visibilité de BFF Project : Admin, Maire et Responsable voient toutes les tâches d’un projet visible, les autres rôles seulement les leurs ; les rôles viennent du jeton vérifié. Le BFF ne dispose pas de base propre ni de mutations métier.
 
 L’aperçu est limité et ne remplace pas les listes complètes des modules. Une source indisponible est signalée et les statistiques absentes restent nulles ou non affichées. Les rapports et mesures de population ou de performance ne sont pas fournis par ce contrat.
 
@@ -28,9 +28,9 @@ Créer `.env` à la racine. Exemple de configuration HTTP locale à adapter aux 
 
 ```dotenv
 PORT=4007
-USER_BFF_URL=http://localhost:4000
-PROJECT_BFF_URL=http://localhost:4001
-CALENDAR_BFF_URL=http://localhost:4002
+CORE_API_URL=http://localhost:3000
+PROJECT_API_URL=http://localhost:3001
+CALENDAR_API_URL=http://localhost:3002
 ```
 
 ```bash
@@ -45,7 +45,7 @@ Vérifier le processus puis consulter la documentation interactive:
 curl --fail --silent --show-error http://localhost:4007/health
 ```
 
-Interface Swagger: `http://localhost:4007/docs`. Spécification JSON: `/openapi.json`, avec l’alias `/swagger.json`. `/health` vérifie le processus; `/check_apis` est un diagnostic distinct des dépendances : il appelle l’opération `/health` de BFF User, Project et Calendar (délai de 5 secondes, mêmes variables `*_URL` que les appels réels) et répond `{ status: 'OK' | 'Error', user_bff, project_bff, calendar_bff }` avec `Connected` ou `Unreachable` pour chacun (`CheckApisResponse` dans le contrat), 200 si tous sont joignables, 502 sinon ; un service non configuré est `Unreachable`.
+Interface Swagger: `http://localhost:4007/docs`. Spécification JSON: `/openapi.json`, avec l’alias `/swagger.json`. `/health` vérifie le processus; `/check_apis` est un diagnostic distinct des dépendances : il appelle l’opération `/health` de Core API, Project API et Calendar API (délai de 5 secondes, mêmes variables `*_URL` que les appels réels) et répond `{ status: 'OK' | 'Error', core_api, project_api, calendar_api }` avec `Connected` ou `Unreachable` pour chacun (`CheckApisResponse` dans le contrat), 200 si tous sont joignables, 502 sinon ; un service non configuré est `Unreachable`.
 
 ## Configuration
 
@@ -54,10 +54,10 @@ Les valeurs ci-dessous sont des exemples locaux ou des comportements expliciteme
 | Variable ou priorité | Exemple / repli indiqué | Rôle |
 | --- | --- | --- |
 | `PORT` | 4007 | Port de cet exemple local. |
-| `USER_BFF_URL` | http://localhost:4000 | Source de l’identité; obligatoire (le démarrage échoue sans elle). |
-| `PROJECT_BFF_URL` | http://localhost:4001 | Source des projets et tâches; obligatoire (le démarrage échoue sans elle). |
-| `CALENDAR_BFF_URL` | http://localhost:4002 | Source des événements; obligatoire (le démarrage échoue sans elle). |
-| `USER_BFF_PORT` / `PROJECT_BFF_PORT` / `CALENDAR_BFF_PORT` | — | Ports optionnels si absents des URL. |
+| `CORE_API_URL` | http://localhost:3000 | Source de l’identité (prénom, rôles d’un jeton ancien); obligatoire (le démarrage échoue sans elle). |
+| `PROJECT_API_URL` | http://localhost:3001 | Source des projets et tâches; obligatoire (le démarrage échoue sans elle). |
+| `CALENDAR_API_URL` | http://localhost:3002 | Source des événements; obligatoire (le démarrage échoue sans elle). |
+| `CORE_API_PORT` / `PROJECT_API_PORT` / `CALENDAR_API_PORT` | — | Ports optionnels si absents des URL. |
 | `TRUST_PROXY` | non défini (aucun proxy de confiance) | Réglage Express `trust proxy` (`true`, un nombre de sauts comme `1`, ou des adresses/sous-réseaux séparés par des virgules) : à définir derrière l’ingress pour que `req.ip` soit le client. |
 
 ## Routes et contrat de données
@@ -72,7 +72,7 @@ Inventaire extrait de `contracts/openapi.json`. Les paramètres entre accolades 
 
 ## Session, permissions et erreurs
 
-Le seul identifiant accepté est l’en-tête `Authorization: Bearer <token>` (lu par `@mairie360/bffs-lib`) ; les cookies et `x-session-token` sont ignorés. Sans lui, toute requête `/dashboard/*` est refusée en 401 avant tout appel amont, et les réponses `/dashboard/*` portent `Cache-Control: no-store`. Le jeton est transmis, normalisé en `Bearer <token>`, aux trois BFF. L’échec du contexte utilisateur bloque le bootstrap. Les appels initiaux Project et Calendar peuvent dégrader leur section; un refus 401 de ces appels ou d’un détail de projet est propagé. Seul un 401 amont est relayé (c’est le seul statut amont déclaré par le contrat) ; tout autre statut amont, une panne réseau ou un corps inexploitable devient 502 (corps BFF User inexploitable : `The USER_BFF answer is invalid.`), et une URL amont manquante ou invalide renvoie 503. Les corps et messages amont ne sont jamais relayés. Les clients ont un délai de 10 secondes.
+Le seul identifiant accepté est l’en-tête `Authorization: Bearer <token>` (lu par `@mairie360/bffs-lib`) ; les cookies et `x-session-token` sont ignorés. Sans lui, toute requête `/dashboard/*` est refusée en 401 avant tout appel amont, et les réponses `/dashboard/*` portent `Cache-Control: no-store`. Le jeton est transmis, normalisé en `Bearer <token>`, aux trois API. L’échec du profil Core bloque le bootstrap. Les appels Project et Calendar peuvent dégrader leur section ; un refus 401 de n’importe quel appel, liste de tâches comprise, est propagé. Seul un 401 amont est relayé (c’est le seul statut amont déclaré par le contrat) ; tout autre statut amont, une panne réseau ou un corps inexploitable devient 502 (profil Core inexploitable : `The CORE_API answer is invalid.`), et une URL amont manquante ou invalide renvoie 503. Les corps et messages amont ne sont jamais relayés. Les clients ont un délai de 10 secondes et rejouent une fois une lecture idempotente sur une panne transitoire.
 
 Les en-têtes de sécurité viennent de la lib (`securityHeaders`, puis `apiOnlyHeaders()` : CSP `default-src 'none'`, `nosniff`, CORP `same-origin` partout sauf `/docs`).
 
@@ -82,7 +82,7 @@ Toutes les réponses d’erreur, y compris les routes inconnues (404) et les cor
 { "error": { "code": "BAD_GATEWAY", "message": "Upstream service error", "details": [] } }
 ```
 
-La fenêtre de 30 jours du calendrier (`from`/`to` envoyés à BFF Calendar) commence à la date du jour en `Europe/Paris`, et non en UTC.
+La fenêtre de 30 jours du calendrier (`start`/`end` envoyés à Calendar API, de 00:00:00 à 23:59:59 heure de Paris convertis en UTC) commence à la date du jour en `Europe/Paris`, et non en UTC.
 
 ## Synchronisation et vérifications
 

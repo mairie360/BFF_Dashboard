@@ -1,38 +1,40 @@
 import path from 'node:path';
 import request from 'supertest';
 import app from '../src/app';
-import { ContractMockServer, unreachableUrl } from './support/contract-mock-server';
+import { ContractMockServer, unreachableUrl, type MockReply } from './support/contract-mock-server';
 import { OpenApiContract } from './support/openapi-contract';
 import { loadOrvalContract } from './support/orval-contract';
-import type { CalendarEvent } from '@mairie360/bff-calendar-openapi/model';
-import type { ProjectListItem, ProjectTask } from '@mairie360/bff-project-openapi/model';
+import type { EventView } from '@mairie360/calendar-api-openapi/model';
+import type { ProjectListItemView, TaskView } from '@mairie360/project-api-openapi/model';
 import {
-  calendarBffUrls, calendarBootstrapResponse, calendarEvent, projectApiError, projectBffUrls, projectDetailsResponse, projectListItem,
-  projectsPageResponse, sessionResponse, sessionToken, taskItem, userBffUrls,
+  calendarApiUrls, calendarResult, coreApiUrls, coreMe, eventView, projectApiUrls, projectListItem, projectsResult, sessionToken,
+  taskView, tasksResult,
 } from './support/upstream-fixtures';
 
-// /dashboard/bootstrap testé contre de vrais serveurs HTTP simulant BFF User, BFF Project et
-// BFF Calendar. Leurs contrats sont reconstruits depuis les paquets @mairie360/bff-*-openapi installés
-// (versions épinglées dans package.json) : chaque mock refuse les routes et paramètres absents du
-// contrat amont et valide ses réponses de succès. Les erreurs ne sont pas typées par orval : toute
-// réponse d'erreur simulée est marquée `outOfContract`. Les corps simulés sont typés par les modèles générés et les
-// chemins attendus viennent des helpers d'URL des clients générés.
+// /dashboard/bootstrap tested against real HTTP servers simulating Core API, Project API and Calendar API: the
+// dashboard reads the APIs, never another BFF (MAIR-525). Their contracts are rebuilt from the installed
+// @mairie360/*-api-openapi packages (versions pinned in package.json): each mock refuses the routes and parameters
+// absent from the upstream contract and validates its success answers. Errors are not typed by orval: every
+// simulated error answer is marked `outOfContract`. Simulated bodies are typed by the generated models and the
+// expected paths come from the URL helpers of the generated clients.
 
-const userBff = new ContractMockServer('USER_BFF', loadOrvalContract('@mairie360/bff-user-openapi'));
-const projectBff = new ContractMockServer('PROJECT_BFF', loadOrvalContract('@mairie360/bff-project-openapi'));
-const calendarBff = new ContractMockServer('CALENDAR_BFF', loadOrvalContract('@mairie360/bff-calendar-openapi'));
-const mocks = [userBff, projectBff, calendarBff];
-// Gabarits des contrats amont (clés des mocks) ; les chemins concrets attendus viennent des helpers d'URL.
-const USER_BFF = { me: '/me' } as const;
-const PROJECT_BFF = { page: '/projects-page', project: '/projects/{projectId}' } as const;
-const CALENDAR_BFF = { bootstrap: '/calendar/bootstrap' } as const;
-// Contrat courant du dashboard (statuts documentés) et dernier contrat publié, consommé par les clients.
+const coreApi = new ContractMockServer('CORE_API', loadOrvalContract('@mairie360/core-api-openapi'));
+const projectApi = new ContractMockServer('PROJECT_API', loadOrvalContract('@mairie360/project-api-openapi'));
+const calendarApi = new ContractMockServer('CALENDAR_API', loadOrvalContract('@mairie360/calendar-api-openapi'));
+const mocks = [coreApi, projectApi, calendarApi];
+// Templates of the upstream contracts (mock keys); the concrete expected paths come from the URL helpers.
+const CORE = { me: '/api/v1/user/me/' } as const;
+const PROJECT = { projects: '/api/v1/projects/', tasks: '/api/v1/projects/{projectId}/tasks/' } as const;
+const CALENDAR = { calendar: '/api/v1/calendar' } as const;
+// Current dashboard contract (documented statuses) and last published contract, used by the clients.
 const dashboardContract = OpenApiContract.load(path.join(__dirname, '..', 'contracts', 'openapi.json'));
 const publishedDashboardContract = loadOrvalContract('@mairie360/bff-dashboard-openapi');
 
-// Session of user 2 signed with the test secret: verified by the BFF, forwarded unchanged upstream.
+// Session of user 2 signed with the test secret: verified by the BFF, forwarded unchanged upstream. It predates the
+// `roles` claim, so the roles come from Core's profile (read anyway for the first name).
 const TOKEN = sessionToken(2);
 const SESSION = `Bearer ${TOKEN}`;
+const withRoles = (roles: string[]) => `Bearer ${sessionToken(2, undefined, undefined, { roles })}`;
 const DAY_MS = 86_400_000;
 
 beforeAll(async () => { await Promise.all(mocks.map((mock) => mock.start())); });
@@ -48,17 +50,20 @@ afterEach(() => {
   expect(mocks.flatMap((mock) => mock.violations)).toEqual([]);
 });
 
-type Scenario = { projects?: ProjectListItem[]; totalProjects?: number; tasks?: Record<string, ProjectTask[]>; events?: CalendarEvent[] };
-function mockUpstreams({ projects = [], totalProjects, tasks = {}, events = [] }: Scenario = {}) {
-  userBff.on('get', USER_BFF.me, { body: sessionResponse() });
-  projectBff.on('get', PROJECT_BFF.page, { body: projectsPageResponse(projects, totalProjects) });
-  projectBff.on('get', PROJECT_BFF.project, ({ pathParams }) => {
-    const project = projects.find((candidate) => candidate.id === pathParams.projectId);
-    return project
-      ? { body: projectDetailsResponse(project, tasks[project.id] ?? []) }
-      : { status: 404, body: projectApiError('NOT_FOUND', 'Projet introuvable'), outOfContract: true };
+type Scenario = {
+  projects?: ProjectListItemView[]; totalProjects?: number; tasks?: Record<number, TaskView[]>; events?: EventView[];
+  roles?: string[]; delayMs?: number;
+};
+function mockUpstreams({ projects = [], totalProjects, tasks = {}, events = [], roles = ['User'], delayMs }: Scenario = {}) {
+  coreApi.on('get', CORE.me, { body: coreMe({ roles, role: roles[0] ?? '' }), delayMs });
+  projectApi.on('get', PROJECT.projects, { body: projectsResult(projects, totalProjects), delayMs });
+  projectApi.on('get', PROJECT.tasks, ({ pathParams }) => {
+    const id = Number(pathParams.projectId);
+    return projects.some((project) => project.id === id)
+      ? { body: tasksResult(tasks[id] ?? []), delayMs }
+      : { status: 404, raw: 'Unknown project.', contentType: 'text/plain', outOfContract: true };
   });
-  calendarBff.on('get', CALENDAR_BFF.bootstrap, { body: calendarBootstrapResponse(events) });
+  calendarApi.on('get', CALENDAR.calendar, { body: calendarResult(events), delayMs });
 }
 
 const bootstrap = (authorization: string | null = SESSION) => {
@@ -78,27 +83,27 @@ function expectDashboardContract(response: request.Response) {
 }
 
 const upstreamCalls = () => mocks.reduce((total, mock) => total + mock.requests.length, 0);
+const textError = (status: number, raw = 'upstream detail'): MockReply => ({ status, raw, contentType: 'text/plain', outOfContract: true });
 
-describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
+describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
   describe('nominal aggregation', () => {
-    test('maps contract-valid upstream payloads to a response valid against the dashboard contract', async () => {
-      const budget = projectListItem({ id: 'project-42', title: 'Budget participatif', progress: 50, status: 'review', dueDate: '2026-12-01' });
-      const open = taskItem({ id: 'task-2', title: 'Validation', dueDate: '2026-11-01', priority: 'high', completed: false });
-      const done = taskItem({ id: 'task-3', completed: true });
+    test('maps contract-valid API payloads to a response valid against the dashboard contract', async () => {
+      const budget = projectListItem(42, { name: 'Budget participatif', status: 'Suspended', tasks_total: 4, tasks_completed: 2, due_date: '2026-12-01T00:00:00Z' });
       mockUpstreams({
-        projects: [budget], totalProjects: 17, tasks: { [budget.id]: [open, done] },
-        events: [calendarEvent({ id: 9, title: 'Conseil', date: '2026-09-18', startTime: '09:00', location: 'Mairie' })],
+        projects: [budget], totalProjects: 17,
+        tasks: { 42: [taskView(2, { title: 'Validation', due_date: '2026-11-01T00:00:00Z', priority: 'Urgent', assigned_to: 2 }), taskView(3, { status: 'Completed', assigned_to: 2 })] },
+        // 07:00Z is 09:00 in Paris (CEST).
+        events: [eventView(9, { name: 'Conseil', start: '2026-09-18T07:00:00Z', location: 'Mairie' })],
       });
 
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      // Les champs amont hors contrat dashboard (labels, permissions, pagination…) sont retirés.
       expect(response.body).toEqual({
         userFirstName: 'Alice',
-        projects: [{ id: 'project-42', title: 'Budget participatif', progress: 50, status: 'review', dueDate: '2026-12-01' }],
-        tasks: [{ id: 'task-2', title: 'Validation', dueDate: '2026-11-01', priority: 'high', completed: false, projectId: 'project-42' }],
+        projects: [{ id: 'project-42', title: 'Budget participatif', progress: 50, status: 'review', dueDate: '2026-12-01T00:00:00Z' }],
+        tasks: [{ id: 'task-2', title: 'Validation', dueDate: '2026-11-01T00:00:00Z', priority: 'high', completed: false, projectId: 'project-42' }],
         events: [{ id: 9, title: 'Conseil', date: '2026-09-18', startTime: '09:00', location: 'Mairie' }],
         metrics: { totalProjects: 17 },
         sources: { projects: 'available', tasks: 'available', calendar: 'available' },
@@ -106,42 +111,73 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(response.headers['cache-control']).toBe('no-store');
     });
 
-    test('calls only operations declared in the upstream contracts and forwards the session token', async () => {
-      const project = projectListItem({ id: 'project-1' });
+    test('MAIR-525: calls only API operations, never another BFF, and forwards the session token', async () => {
+      const project = projectListItem(1);
       mockUpstreams({ projects: [project] });
 
       await bootstrap();
 
-      expect(userBff.requests.map((call) => call.url.pathname)).toEqual([userBffUrls.getGetMeUrl()]);
-      expect(projectBff.requests.map((call) => call.url.pathname).sort())
-        .toEqual([projectBffUrls.getGetProjectsPageUrl(), projectBffUrls.getGetProjectsProjectIdUrl(project.id)].sort());
-      expect(calendarBff.requests.map((call) => call.url.pathname)).toEqual([calendarBffUrls.getGetCalendarBootstrapUrl()]);
+      expect(coreApi.requests.map((call) => call.url.pathname)).toEqual([coreApiUrls.getGetMeUrl()]);
+      expect(projectApi.requests.map((call) => call.url.pathname).sort())
+        .toEqual([projectApiUrls.getGetProjectsUrl(), projectApiUrls.getGetProjectTasksUrl(1)].sort());
+      expect(calendarApi.requests.map((call) => call.url.pathname)).toEqual([calendarApiUrls.getGetCalendarUrl({ start: '', end: '' }).split('?')[0]]);
       for (const call of mocks.flatMap((mock) => mock.requests)) {
         expect(call.method).toBe('GET');
         expect(call.headers.authorization).toBe(SESSION);
         expect(call.headers.accept).toBe('application/json');
+        expect(call.undeclaredQuery).toEqual([]);
       }
 
-      const [page] = projectBff.calls(PROJECT_BFF.page);
-      expect(`${page.url.pathname}${page.url.search}`).toBe(projectBffUrls.getGetProjectsPageUrl({ page: 1, limit: 6 }));
-      expect(page.undeclaredQuery).toEqual([]);
+      const [page] = projectApi.calls(PROJECT.projects);
+      expect(page.url.searchParams.get('limit')).toBe('6');
+      const [calendar] = calendarApi.calls(CALENDAR.calendar);
+      const start = Date.parse(calendar.url.searchParams.get('start')!);
+      const end = Date.parse(calendar.url.searchParams.get('end')!);
+      // From 00:00:00 of today to 23:59:59 of today + 30, Paris time (a DST change shifts it by one hour).
+      expect(Math.abs(end - start - (31 * DAY_MS - 1000))).toBeLessThanOrEqual(3_600_000);
+    });
 
-      const [calendar] = calendarBff.calls(CALENDAR_BFF.bootstrap);
-      const from = calendar.url.searchParams.get('from')!;
-      const to = calendar.url.searchParams.get('to')!;
-      expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(Date.parse(to) - Date.parse(from)).toBe(30 * DAY_MS);
-      // @mairie360/bff-calendar-openapi declares from/to since 0.4.0: the mock validates them as declared parameters.
-      expect(calendar.undeclaredQuery).toEqual([]);
+    test('MAIR-525: the profile, the projects and the events start in one parallel wave', async () => {
+      mockUpstreams({ projects: [projectListItem(1)] });
+      // Each answer takes 80 ms: calls chained one after the other would arrive at least 80 ms apart.
+      const arrivals: number[] = [];
+      const slow = (body: unknown): MockReply => { arrivals.push(Date.now()); return { body, delayMs: 80 }; };
+      coreApi.on('get', CORE.me, () => slow(coreMe()));
+      projectApi.on('get', PROJECT.projects, () => slow(projectsResult([projectListItem(1)])));
+      calendarApi.on('get', CALENDAR.calendar, () => slow(calendarResult([])));
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expect(arrivals).toHaveLength(3);
+      expect(Math.max(...arrivals) - Math.min(...arrivals)).toBeLessThan(60);
+      expect(projectApi.calls(PROJECT.tasks)).toHaveLength(1);
+    });
+
+    test('MAIR-525: the number of API calls stays the same for 1 and 100 visible projects', async () => {
+      const count = async (visible: number) => {
+        for (const mock of mocks) mock.reset();
+        // Project API serves the first 6 (limit) and counts every visible project.
+        mockUpstreams({ projects: Array.from({ length: Math.min(visible, 6) }, (_, i) => projectListItem(i + 1)), totalProjects: visible });
+        const response = await bootstrap();
+        expect(response.body.metrics.totalProjects).toBe(visible);
+        return upstreamCalls();
+      };
+
+      const one = await count(1);
+      const hundred = await count(100);
+
+      expect(one).toBe(3 + 1);
+      // At most 6 task lists, whatever the number of projects.
+      expect(hundred).toBe(3 + 6);
     });
 
     test.each([
       // 00:30 in Paris (CEST, UTC+2) is still 22:30 the day before in UTC.
-      ['summer time', '2026-03-31T22:30:00Z', '2026-04-01', '2026-05-01'],
+      ['summer time', '2026-03-31T22:30:00Z', '2026-03-31T22:00:00Z', '2026-05-01T21:59:59Z'],
       // 00:15 in Paris (CET, UTC+1) is still 23:15 the day before in UTC, across a year boundary.
-      ['winter time', '2026-12-31T23:15:00Z', '2027-01-01', '2027-01-31'],
-    ])('asks BFF Calendar for the next 30 days of the Europe/Paris calendar (%s)', async (_label, now, from, to) => {
+      ['winter time', '2026-12-31T23:15:00Z', '2026-12-31T23:00:00Z', '2027-01-31T22:59:59Z'],
+    ])('asks Calendar API for the next 30 days of the Europe/Paris calendar (%s)', async (_label, now, start, end) => {
       // Only Date is faked: the HTTP servers and supertest keep the real timers.
       jest.useFakeTimers({
         now: new Date(now),
@@ -153,86 +189,76 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
         const response = await bootstrap();
 
         expect(response.status).toBe(200);
-        const [calendar] = calendarBff.calls(CALENDAR_BFF.bootstrap);
-        expect({ from: calendar.url.searchParams.get('from'), to: calendar.url.searchParams.get('to') }).toEqual({ from, to });
+        const [calendar] = calendarApi.calls(CALENDAR.calendar);
+        expect({ start: calendar.url.searchParams.get('start'), end: calendar.url.searchParams.get('end') }).toEqual({ start, end });
       } finally {
         jest.useRealTimers();
       }
     });
 
-    test('requests project details with the identifier encoded as the contract path parameter', async () => {
-      const project = projectListItem({ id: 'projet 7/2026' });
-      mockUpstreams({ projects: [project], tasks: { [project.id]: [taskItem({ id: 'task-9' })] } });
-
-      const response = await bootstrap();
-
-      const [details] = projectBff.calls(PROJECT_BFF.project);
-      // Le dashboard encode l'identifiant avant de le passer au client généré, qui l'insère tel quel.
-      expect(details.url.pathname).toBe(projectBffUrls.getGetProjectsProjectIdUrl(encodeURIComponent('projet 7/2026')));
-      expect(details.pathParams).toEqual({ projectId: 'projet 7/2026' });
-      expect(response.body.tasks).toEqual([expect.objectContaining({ id: 'task-9', projectId: 'projet 7/2026' })]);
-    });
-
     test('keeps unfinished tasks only, in project order, capped at 8 and tagged with their project', async () => {
-      const projects = ['p1', 'p2', 'p3'].map((id) => projectListItem({ id }));
-      const tasksFor = (projectId: string, count: number) => Array.from({ length: count }, (_, index) =>
-        taskItem({ id: `${projectId}-t${index}`, completed: index % 2 === 1 }));
-      mockUpstreams({ projects, tasks: { p1: tasksFor('p1', 6), p2: tasksFor('p2', 6), p3: tasksFor('p3', 6) } });
+      const projects = [1, 2, 3].map((id) => projectListItem(id));
+      const tasksFor = (projectId: number) => Array.from({ length: 6 }, (_, index) =>
+        taskView(projectId * 10 + index, { status: index % 2 === 1 ? 'Completed' : 'Todo', assigned_to: 2 }));
+      mockUpstreams({ projects, tasks: { 1: tasksFor(1), 2: tasksFor(2), 3: tasksFor(3) } });
 
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      expect(projectBff.calls(PROJECT_BFF.project)).toHaveLength(3);
+      expect(projectApi.calls(PROJECT.tasks)).toHaveLength(3);
       expect(response.body.tasks.map((task: { id: string; projectId: string }) => `${task.projectId}:${task.id}`)).toEqual([
-        'p1:p1-t0', 'p1:p1-t2', 'p1:p1-t4', 'p2:p2-t0', 'p2:p2-t2', 'p2:p2-t4', 'p3:p3-t0', 'p3:p3-t2',
+        'project-1:task-10', 'project-1:task-12', 'project-1:task-14', 'project-2:task-20', 'project-2:task-22', 'project-2:task-24',
+        'project-3:task-30', 'project-3:task-32',
       ]);
-      expect(response.body.tasks.every((task: { completed: boolean }) => !task.completed)).toBe(true);
     });
 
-    test('sorts events by date then start time, caps them at 6 and keeps string or numeric ids', async () => {
+    test.each([
+      ['an agent (roles from Core)', SESSION, ['User'], ['task-1']],
+      ['a Responsable (roles from Core)', SESSION, ['Responsable'], ['task-1', 'task-2', 'task-3']],
+      ['an admin (roles in the token, MAIR-529)', withRoles(['admin']), ['User'], ['task-1', 'task-2', 'task-3']],
+      ['an agent (roles in the token) whom Core calls admin', withRoles(['User']), ['admin'], ['task-1']],
+    ])('shows %s the tasks BFF Project would show them', async (_label, authorization, coreRoles, expected) => {
+      const project = projectListItem(1);
+      mockUpstreams({
+        projects: [project], roles: coreRoles,
+        tasks: { 1: [taskView(1, { assigned_to: 2 }), taskView(2, { assigned_to: 3 }), taskView(3)] },
+      });
+
+      const response = await bootstrap(authorization);
+
+      expect(response.status).toBe(200);
+      expect(response.body.tasks.map((task: { id: string }) => task.id)).toEqual(expected);
+    });
+
+    test('sorts events by Paris date then start time, caps them at 6', async () => {
       const events = [
-        calendarEvent({ id: 'late', date: '2026-09-25', startTime: '14:00' }),
-        calendarEvent({ id: 1, date: '2026-09-20', startTime: '18:00' }),
-        calendarEvent({ id: 'all-day', date: '2026-09-20', startTime: undefined }),
-        calendarEvent({ id: 2, date: '2026-09-20', startTime: '08:30' }),
-        calendarEvent({ id: 'next-week', date: '2026-10-01', startTime: '10:00' }),
-        calendarEvent({ id: 3, date: '2026-09-22', startTime: '09:00' }),
-        calendarEvent({ id: 'last', date: '2026-10-10', startTime: '09:00' }),
-      ].map((event) => JSON.parse(JSON.stringify(event)) as CalendarEvent);
+        eventView(1, { start: '2026-09-25T12:00:00Z' }),
+        eventView(2, { start: '2026-09-20T16:00:00Z' }),
+        eventView(3, { start: '2026-09-19T22:30:00Z' }), // 00:30 on Sept 20 in Paris
+        eventView(4, { start: '2026-09-20T06:30:00Z' }),
+        eventView(5, { start: '2026-10-01T08:00:00Z' }),
+        eventView(6, { start: '2026-09-22T07:00:00Z' }),
+        eventView(7, { start: '2026-10-10T07:00:00Z' }),
+      ];
       mockUpstreams({ events });
 
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      expect(response.body.events.map((event: { id: string | number }) => event.id)).toEqual(['all-day', 2, 1, 3, 'late', 'next-week']);
-      expect(response.body.sources.calendar).toBe('available');
+      expect(response.body.events.map((event: { id: number }) => event.id)).toEqual([3, 4, 2, 6, 1, 5]);
+      expect(response.body.events[0]).toMatchObject({ date: '2026-09-20', startTime: '00:30' });
     });
 
-    test('sorts DD-MM-YYYY and YYYY-MM-DD dates chronologically, both accepted by the Calendar contract', async () => {
-      mockUpstreams({ events: [
-        calendarEvent({ id: 'dec', date: '01-12-2026', startTime: '09:00' }),
-        calendarEvent({ id: 'oct', date: '2026-10-15', startTime: '09:00' }),
-        calendarEvent({ id: 'sep', date: '30-09-2026', startTime: '09:00' }),
-      ] });
-
-      const response = await bootstrap();
-
-      expect(response.status).toBe(200);
-      expect(response.body.events.map((event: { id: string; date: string }) => [event.id, event.date])).toEqual([
-        ['sep', '30-09-2026'], ['oct', '2026-10-15'], ['dec', '01-12-2026'],
-      ]);
-    });
-
-    test('an empty project page yields available sections without fetching project details', async () => {
+    test('an empty project page yields available sections without reading any task list', async () => {
       mockUpstreams({ projects: [], totalProjects: 0 });
 
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      expect(projectBff.calls(PROJECT_BFF.project)).toHaveLength(0);
+      expect(projectApi.calls(PROJECT.tasks)).toHaveLength(0);
       expect(response.body).toMatchObject({ projects: [], tasks: [], events: [], metrics: { totalProjects: 0 } });
       expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'available' });
     });
@@ -288,24 +314,13 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(new Set(forwarded)).toEqual(new Set([SESSION]));
     });
 
-    test('propagates a 401 from BFF User /me without calling the other BFFs', async () => {
-      mockUpstreams();
-      userBff.on('get', USER_BFF.me, { status: 401, body: { message: 'Invalid or missing session token' }, outOfContract: true });
-
-      const response = await bootstrap();
-
-      expect(response.status).toBe(401);
-      expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { code: 'UNAUTHORIZED', message: 'Authentication required', details: [] } });
-      expect(projectBff.requests).toHaveLength(0);
-      expect(calendarBff.requests).toHaveLength(0);
-    });
-
     test.each([
-      ['BFF Project', () => projectBff.on('get', PROJECT_BFF.page, { status: 401, body: { error: { message: 'Session invalide' } }, outOfContract: true }), 'PROJECT_BFF'],
-      ['BFF Calendar', () => calendarBff.on('get', CALENDAR_BFF.bootstrap, { status: 401, body: { code: 'UNAUTHORIZED', message: 'Session invalide.' }, outOfContract: true }), 'CALENDAR_BFF'],
+      ['Core API', () => coreApi.on('get', CORE.me, textError(401, 'Jeton expiré'))],
+      ['Project API', () => projectApi.on('get', PROJECT.projects, textError(401, 'Jeton expiré'))],
+      ['a Project API task list', () => projectApi.on('get', PROJECT.tasks, textError(401, 'Jeton expiré'))],
+      ['Calendar API', () => calendarApi.on('get', CALENDAR.calendar, textError(401, 'Jeton expiré'))],
     ])('propagates a 401 from %s even when the other sources succeed', async (_label, override) => {
-      mockUpstreams({ projects: [projectListItem()] });
+      mockUpstreams({ projects: [projectListItem(1)] });
       override();
 
       const response = await bootstrap();
@@ -315,82 +330,51 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(response.body).toEqual({ error: { code: 'UNAUTHORIZED', message: 'Authentication required', details: [] } });
     });
 
-    test('returns 502 when BFF User is unreachable', async () => {
+    test('returns 502 when Core API is unreachable', async () => {
       mockUpstreams();
-      process.env.USER_BFF_URL = await unreachableUrl();
+      process.env.CORE_API_URL = await unreachableUrl();
 
       const response = await bootstrap();
 
       expect(response.status).toBe(502);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'The USER_BFF service is unavailable.', details: [] } });
-      expect(upstreamCalls()).toBe(0);
+      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'The CORE_API service is unavailable.', details: [] } });
     });
 
-    test('returns 502 when BFF User answers a body that is not JSON', async () => {
+    test.each<[string, MockReply, string]>([
+      ['a body that is not JSON', { raw: '<html>proxy error</html>', outOfContract: true }, 'The CORE_API answer is invalid.'],
+      ['a profile without first name', { body: { unexpected: true }, outOfContract: true }, 'The CORE_API answer is invalid.'],
+      ['a server error', textError(500, 'boom'), 'Upstream service error'],
+      ['an undeclared 403', textError(403, 'Upstream secret detail'), 'Upstream service error'],
+      ['an undeclared 404', textError(404, 'Upstream secret detail'), 'Upstream service error'],
+    ])('maps %s from Core /user/me to 502 without relaying its body', async (_label, reply, message) => {
       mockUpstreams();
-      userBff.on('get', USER_BFF.me, { raw: '<html>proxy error</html>', outOfContract: true });
+      coreApi.on('get', CORE.me, reply);
 
       const response = await bootstrap();
 
       expect(response.status).toBe(502);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'The USER_BFF answer is invalid.', details: [] } });
+      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message, details: [] } });
+      expect(JSON.stringify(response.body)).not.toMatch(/boom|secret/);
     });
 
-    test('maps a BFF User server error to 502', async () => {
+    test('returns 503 when Core API is not configured', async () => {
       mockUpstreams();
-      userBff.on('get', USER_BFF.me, { status: 500, body: { error: 'boom' }, outOfContract: true });
-
-      const response = await bootstrap();
-
-      expect(response.status).toBe(502);
-      expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'Upstream service error', details: [] } });
-      expect(JSON.stringify(response.body)).not.toContain('boom');
-      expect(projectBff.requests).toHaveLength(0);
-    });
-
-    test.each([403, 404, 409, 422])('maps an undeclared %i from BFF User /me to 502 without relaying its body', async (status) => {
-      mockUpstreams();
-      userBff.on('get', USER_BFF.me, { status, body: { error: { message: 'Upstream secret detail' } }, outOfContract: true });
-
-      const response = await bootstrap();
-
-      expect(response.status).toBe(502);
-      expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'Upstream service error', details: [] } });
-      expect(projectBff.requests).toHaveLength(0);
-    });
-
-    test('maps an unusable BFF User identity to 502', async () => {
-      mockUpstreams();
-      userBff.on('get', USER_BFF.me, { body: { unexpected: true }, outOfContract: true });
-
-      const response = await bootstrap();
-
-      expect(response.status).toBe(502);
-      expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message: 'The USER_BFF answer is invalid.', details: [] } });
-      expect(projectBff.requests).toHaveLength(0);
-    });
-
-    test('returns 503 when BFF User is not configured', async () => {
-      mockUpstreams();
-      delete process.env.USER_BFF_URL;
+      delete process.env.CORE_API_URL;
 
       const response = await bootstrap();
 
       expect(response.status).toBe(503);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { code: 'SERVICE_UNAVAILABLE', message: 'The USER_BFF service is not configured.', details: [] } });
-      expect(upstreamCalls()).toBe(0);
+      expect(response.body).toEqual({ error: { code: 'SERVICE_UNAVAILABLE', message: 'The CORE_API service is not configured.', details: [] } });
+      expect(coreApi.requests).toHaveLength(0);
     });
 
     test.each([
-      ['an invalid URL', { USER_BFF_URL: 'http://bad host' }],
-      ['an invalid port', { USER_BFF_URL: 'bff-user', USER_BFF_PORT: '99999' }],
-    ])('returns 503 when BFF User has %s, without calling any upstream', async (_label, env) => {
+      ['an invalid URL', { CORE_API_URL: 'http://bad host' }],
+      ['an invalid port', { CORE_API_URL: 'core-api', CORE_API_PORT: '99999' }],
+    ])('returns 503 when Core API has %s', async (_label, env) => {
       mockUpstreams();
       Object.assign(process.env, env);
 
@@ -398,8 +382,8 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
       expect(response.status).toBe(503);
       expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { code: 'SERVICE_UNAVAILABLE', message: 'The USER_BFF service is misconfigured.', details: [] } });
-      expect(upstreamCalls()).toBe(0);
+      expect(response.body).toEqual({ error: { code: 'SERVICE_UNAVAILABLE', message: 'The CORE_API service is misconfigured.', details: [] } });
+      expect(coreApi.requests).toHaveLength(0);
     });
 
     test('still answers 401 first when no upstream is configured', async () => {
@@ -426,9 +410,9 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
   });
 
   describe('degraded sources', () => {
-    test('a 500 from BFF Project /projects-page marks projects and tasks unavailable', async () => {
-      mockUpstreams({ events: [calendarEvent()] });
-      projectBff.on('get', PROJECT_BFF.page, { status: 500, body: projectApiError('INTERNAL_ERROR', 'Erreur serveur'), outOfContract: true });
+    test('a 500 from Project API /projects marks projects and tasks unavailable', async () => {
+      mockUpstreams({ events: [eventView(1)] });
+      projectApi.on('get', PROJECT.projects, textError(500, 'Erreur serveur'));
 
       const response = await bootstrap();
 
@@ -437,16 +421,12 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(response.body).toMatchObject({ projects: [], tasks: [], metrics: { totalProjects: null } });
       expect(response.body.events).toHaveLength(1);
       expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'unavailable', calendar: 'available' });
-      expect(projectBff.calls(PROJECT_BFF.project)).toHaveLength(0);
+      expect(projectApi.calls(PROJECT.tasks)).toHaveLength(0);
     });
 
-    test.each([
-      [500, { code: 'INTERNAL_SERVER_ERROR', message: 'Erreur interne du serveur.' }],
-      [502, { code: 'BAD_GATEWAY', message: 'Le service Calendar est indisponible.' }],
-    ])('a %i from BFF Calendar /calendar/bootstrap marks only the calendar unavailable', async (status, body) => {
-      const project = projectListItem();
-      mockUpstreams({ projects: [project], tasks: { [project.id]: [taskItem()] } });
-      calendarBff.on('get', CALENDAR_BFF.bootstrap, { status, body, outOfContract: true });
+    test.each([500, 502])('a %i from Calendar API marks only the calendar unavailable', async (status) => {
+      mockUpstreams({ projects: [projectListItem(1)], tasks: { 1: [taskView(1, { assigned_to: 2 })] } });
+      calendarApi.on('get', CALENDAR.calendar, textError(status));
 
       const response = await bootstrap();
 
@@ -458,9 +438,9 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'unavailable' });
     });
 
-    test('an unreachable BFF Calendar degrades the calendar section instead of failing', async () => {
-      mockUpstreams({ projects: [projectListItem()] });
-      process.env.CALENDAR_BFF_URL = await unreachableUrl();
+    test('an unreachable Calendar API degrades the calendar section instead of failing', async () => {
+      mockUpstreams({ projects: [projectListItem(1)] });
+      process.env.CALENDAR_API_URL = await unreachableUrl();
 
       const response = await bootstrap();
 
@@ -469,38 +449,24 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'unavailable' });
     });
 
-    test('a 404 on one project detail keeps the other tasks but marks tasks unavailable', async () => {
-      const kept = projectListItem({ id: 'kept' });
-      const missing = projectListItem({ id: 'missing' });
-      mockUpstreams({ projects: [kept, missing], tasks: { kept: [taskItem({ id: 'task-kept' })] } });
-      projectBff.on('get', PROJECT_BFF.project, ({ pathParams }) => pathParams.projectId === 'kept'
-        ? { body: projectDetailsResponse(kept, [taskItem({ id: 'task-kept' })]) }
-        : { status: 404, body: projectApiError('NOT_FOUND', 'Projet introuvable'), outOfContract: true });
+    test('a 404 on one task list keeps the other tasks but marks tasks unavailable', async () => {
+      const kept = projectListItem(1);
+      mockUpstreams({ projects: [kept], tasks: { 1: [taskView(5, { assigned_to: 2 })] } });
+      // Project 2 is listed but its tasks answer 404 (deleted between the two reads).
+      projectApi.on('get', PROJECT.projects, { body: projectsResult([kept, projectListItem(2)]) });
 
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      expect(response.body.projects.map((project: { id: string }) => project.id)).toEqual(['kept', 'missing']);
-      expect(response.body.tasks).toEqual([expect.objectContaining({ id: 'task-kept', projectId: 'kept' })]);
+      expect(response.body.projects.map((project: { id: string }) => project.id)).toEqual(['project-1', 'project-2']);
+      expect(response.body.tasks).toEqual([expect.objectContaining({ id: 'task-5', projectId: 'project-1' })]);
       expect(response.body.sources).toEqual({ projects: 'available', tasks: 'unavailable', calendar: 'available' });
-    });
-
-    test('propagates a 401 from a BFF Project detail like the initial calls', async () => {
-      const project = projectListItem();
-      mockUpstreams({ projects: [project] });
-      projectBff.on('get', PROJECT_BFF.project, { status: 401, body: { error: { message: 'Session invalide' } }, outOfContract: true });
-
-      const response = await bootstrap();
-
-      expect(response.status).toBe(401);
-      expectDashboardContract(response);
-      expect(response.body).toEqual({ error: { code: 'UNAUTHORIZED', message: 'Authentication required', details: [] } });
     });
 
     test('a payload rejected by the dashboard parser degrades the section without inventing data', async () => {
       mockUpstreams();
-      projectBff.on('get', PROJECT_BFF.page, { body: { projects: [{ id: 42 }] }, outOfContract: true });
+      projectApi.on('get', PROJECT.projects, { body: { projects: [{ id: 42 }] }, outOfContract: true });
 
       const response = await bootstrap();
 
@@ -510,11 +476,9 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
       expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'unavailable', calendar: 'available' });
     });
 
-    test('skips a contract-valid calendar event without id but keeps the calendar available', async () => {
-      // CalendarEvent.id est optionnel dans le contrat BFF Calendar, mais le dashboard l'expose comme requis.
-      const withoutId = calendarEvent({ title: 'Sans identifiant' });
-      delete withoutId.id;
-      mockUpstreams({ events: [calendarEvent({ id: 1 }), withoutId] });
+    test('skips an unusable calendar event but keeps the calendar available', async () => {
+      mockUpstreams();
+      calendarApi.on('get', CALENDAR.calendar, { body: { events: [eventView(1), { name: 'Sans identifiant' }] }, outOfContract: true });
 
       const response = await bootstrap();
 
@@ -526,7 +490,7 @@ describe('GET /dashboard/bootstrap with contract-driven upstream mocks', () => {
 
     test('a calendar payload whose events field is not a list marks the calendar unavailable', async () => {
       mockUpstreams();
-      calendarBff.on('get', CALENDAR_BFF.bootstrap, { body: { events: 'none' }, outOfContract: true });
+      calendarApi.on('get', CALENDAR.calendar, { body: { events: 'none' }, outOfContract: true });
 
       const response = await bootstrap();
 
