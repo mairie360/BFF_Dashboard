@@ -1,5 +1,6 @@
 import type { AddressInfo } from 'node:net';
 import { UPSTREAM_SERVICES, start } from '../src/index';
+import { captureLogs } from './support/logs';
 
 // Entry point: the BFF refuses to start when an upstream is not configured (no localhost default).
 describe('start()', () => {
@@ -38,14 +39,15 @@ describe('start()', () => {
 
   test('listens once every upstream is configured', async () => {
     for (const service of UPSTREAM_SERVICES) process.env[`${service}_URL`] = `${service.toLowerCase()}.internal`;
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const logs = captureLogs();
     const server = start(0);
     try {
       await new Promise<void>((resolve) => server.once('listening', resolve));
       expect((server.address() as AddressInfo).port).toBeGreaterThan(0);
+      expect(logs).toEqual([expect.objectContaining({ level: 'INFO', target: 'bff-dashboard', message: 'server listening' })]);
     } finally {
       await new Promise((resolve) => server.close(resolve));
-      logSpy.mockRestore();
+      jest.restoreAllMocks();
     }
   });
 });
