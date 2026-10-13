@@ -64,12 +64,15 @@ export function taskView(id: number, overrides: Partial<TaskView> = {}): TaskVie
 /** `GET /api/v1/projects/{id}/tasks/`. */
 export const tasksResult = (tasks: TaskView[]): GetTasksResultView => ({ tasks, total: tasks.length });
 
-/** An event of `GET /api/v1/calendar` (list view: no members). `start` / `end` are UTC instants. */
+/**
+ * An event of `GET /api/v1/calendar`. `start` / `end` are UTC instants. Since MAIR-524 the list carries the members
+ * of each event; the dashboard does not read them.
+ */
 export function eventView(id: number, overrides: Partial<EventView> = {}): EventView {
   return {
     id, name: `Événement ${id}`, start: '2026-09-20T16:00:00Z', end: '2026-09-20T18:00:00Z',
     category: EventCategory.meeting, visibility: EventVisibility.Public, is_member: true, location: null, service: null,
-    recurrence: null, ...overrides,
+    recurrence: null, members: [], ...overrides,
   };
 }
 
