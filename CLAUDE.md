@@ -89,7 +89,7 @@ the caller's tasks in one call), and Calendar `GET /api/v1/calendar?start=&end=`
 calendar, `parisDateWindow(30)` converted with the lib's `wallClockToUtc`; event times shown with `utcToWallClock`).
 The mappings copy BFF_Project's vocabulary (statuses, priorities, `project-<id>` / `task-<id>`) and visibility:
 Admin/Maire/Responsable see every unfinished task, other roles only those assigned to them; the roles come from
-the token (`sessionRoles`, MAIR-529) or Core's profile for an older token. A 401 from any upstream propagates;
+the token (`sessionRole`, MAIR-529) or Core's profile for a token without it. A 401 from any upstream propagates;
 any other upstream failure degrades that section to `sources.<x> = "unavailable"` and
 `metrics.totalProjects = null` rather than inventing data; an unusable event is skipped. Output is capped at 6
 projects / 8 tasks / 6 events. The upstream-mock tests check the single wave (arrival times) and a constant number

@@ -30,7 +30,7 @@ This repository contains the BFF server and its contract. Associated web service
 
 ## Data and current state
 
-The dashboard reads the APIs, never another BFF (MAIR-525), in one parallel wave: Core API `GET /api/v1/user/me/` supplies the first name (and the roles of a token issued before the `roles` claim), Project API `GET /api/v1/projects/?limit=6` the first projects and their total, each followed at once by its tasks (`GET /api/v1/projects/{id}/tasks/`, at most 6 lists until Project API offers the caller's tasks in one call), and Calendar API `GET /api/v1/calendar` the events of the next 30 days. Tasks follow BFF Project's visibility: Admin, Maire and Responsable see every task of a visible project, other roles only theirs; the roles come from the verified token. The BFF has no database of its own and no business mutations.
+The dashboard reads the APIs, never another BFF (MAIR-525), in one parallel wave: Core API `GET /api/v1/user/me/` supplies the first name (and the roles of a token without the `role` claim), Project API `GET /api/v1/projects/?limit=6` the first projects and their total, each followed at once by its tasks (`GET /api/v1/projects/{id}/tasks/`, at most 6 lists until Project API offers the caller's tasks in one call), and Calendar API `GET /api/v1/calendar` the events of the next 30 days. Tasks follow BFF Project's visibility: Admin, Maire and Responsable see every task of a visible project, other roles only theirs; the role comes from the verified token. The BFF has no database of its own and no business mutations.
 
 ## Scope and limitations
 
