@@ -1,5 +1,6 @@
 import { checkApis, checkApisResponseSchema, withoutSession } from '@mairie360/bffs-lib';
 import { Router } from 'express';
+import { logger } from '../logger';
 import { registry } from '../openapi-registry';
 import { calendarApi, coreApi, projectApi } from '../clients/upstreams';
 
@@ -29,5 +30,5 @@ router.get('/', checkApis({
   core_api: () => coreApi.health(withoutSession('CORE_API', 5_000)),
   project_api: () => projectApi.health(withoutSession('PROJECT_API', 5_000)),
   calendar_api: () => calendarApi.health(withoutSession('CALENDAR_API', 5_000)),
-}));
+}, { logger }));
 export default router;
