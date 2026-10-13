@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import { z } from 'zod';
 import {
-  HttpError, PROJECT_TASK_MANAGER_ROLES, asCaller, callUpstream, hasRole, parisDateWindow, sessionRoles, sessionUserId, utcToWallClock,
+  HttpError, PROJECT_TASK_MANAGER_ROLES, asCaller, callUpstream, hasRole, parisDateWindow, sessionRole, sessionUserId, utcToWallClock,
   wallClockToUtc,
 } from '@mairie360/bffs-lib';
 import { ErrorSchema, registry } from '../openapi-registry';
@@ -96,8 +96,9 @@ router.get('/bootstrap', async (req, res) => {
   if (meResult.status === 'rejected') throw meResult.reason;
   const me = meResult.value;
 
-  // The roles come from the verified token (MAIR-529), or from Core's profile for an older token.
-  const roles = sessionRoles(req) ?? me.roles ?? (me.role ? [me.role] : []);
+  // The role comes from the verified token (MAIR-529), or from Core's profile for a token without it.
+  const tokenRole = sessionRole(req);
+  const roles = tokenRole !== undefined ? [tokenRole] : me.roles ?? (me.role ? [me.role] : []);
   // BFF_Project's rule: Admin, Maire and Responsable see every task of a visible project, others their own.
   const seesEveryTask = hasRole(roles, ...PROJECT_TASK_MANAGER_ROLES);
   const userId = sessionUserId(req);

@@ -31,10 +31,10 @@ const dashboardContract = OpenApiContract.load(path.join(__dirname, '..', 'contr
 const publishedDashboardContract = loadOrvalContract('@mairie360/bff-dashboard-openapi');
 
 // Session of user 2 signed with the test secret: verified by the BFF, forwarded unchanged upstream. It predates the
-// `roles` claim, so the roles come from Core's profile (read anyway for the first name).
+// `role` claim, so the roles come from Core's profile (read anyway for the first name).
 const TOKEN = sessionToken(2);
 const SESSION = `Bearer ${TOKEN}`;
-const withRoles = (roles: string[]) => `Bearer ${sessionToken(2, undefined, undefined, { roles })}`;
+const withClaims = (claims: object) => `Bearer ${sessionToken(2, undefined, undefined, claims)}`;
 const DAY_MS = 86_400_000;
 
 beforeAll(async () => { await Promise.all(mocks.map((mock) => mock.start())); });
@@ -216,8 +216,10 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
     test.each([
       ['an agent (roles from Core)', SESSION, ['User'], ['task-1']],
       ['a Responsable (roles from Core)', SESSION, ['Responsable'], ['task-1', 'task-2', 'task-3']],
-      ['an admin (roles in the token, MAIR-529)', withRoles(['admin']), ['User'], ['task-1', 'task-2', 'task-3']],
-      ['an agent (roles in the token) whom Core calls admin', withRoles(['User']), ['admin'], ['task-1']],
+      ['an admin (role in the token, MAIR-529)', withClaims({ role: 'admin' }), ['User'], ['task-1', 'task-2', 'task-3']],
+      ['an agent (role in the token) whom Core calls admin', withClaims({ role: 'User' }), ['admin'], ['task-1']],
+      ['an agent (empty role in the token, roles from Core)', withClaims({ role: '' }), ['User'], ['task-1']],
+      ['an agent whose token only has a `roles` claim (ignored)', withClaims({ roles: ['admin'] }), ['User'], ['task-1']],
     ])('shows %s the tasks BFF Project would show them', async (_label, authorization, coreRoles, expected) => {
       const project = projectListItem(1);
       mockUpstreams({
