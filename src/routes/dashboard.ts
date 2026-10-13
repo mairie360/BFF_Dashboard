@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import { z } from 'zod';
 import {
-  HttpError, asCaller, callUpstream, parisDateWindow, sessionRoles, sessionUserId, utcToWallClock,
+  HttpError, PROJECT_TASK_MANAGER_ROLES, asCaller, callUpstream, hasRole, parisDateWindow, sessionRoles, sessionUserId, utcToWallClock,
   wallClockToUtc,
 } from '@mairie360/bffs-lib';
 import { ErrorSchema, registry } from '../openapi-registry';
@@ -52,10 +52,6 @@ const EVENTS_SHOWN = 6;
 // Same vocabulary as BFF_Project (src/routes/Project/project_helpers.ts), so both pages show the same words.
 const PROJECT_STATUS: Record<string, z.infer<typeof Project>['status']> = { Active: 'in-progress', Suspended: 'review', Completed: 'done', Error: 'todo' };
 const TASK_PRIORITY: Record<string, z.infer<typeof Task>['priority']> = { Low: 'low', Medium: 'medium', High: 'high', Urgent: 'high', Error: 'medium' };
-/** Roles that see every task of a visible project (BFF_Project's Admin, Maire and Responsable); others see their own. */
-const TASK_MANAGERS = new Set(['admin', 'administrateur', 'administrator', 'maire', 'mayor', 'responsable', 'manager']);
-const roleKey = (role: string) => role.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
-  .replace(/[\s_-]+/g, '').replace(/^role/, '');
 const projectPublicId = (id: number) => `project-${id}`;
 
 registry.registerPath({ method: 'get', path: '/dashboard/bootstrap', responses: {
@@ -102,7 +98,8 @@ router.get('/bootstrap', async (req, res) => {
 
   // The roles come from the verified token (MAIR-529), or from Core's profile for an older token.
   const roles = sessionRoles(req) ?? me.roles ?? (me.role ? [me.role] : []);
-  const seesEveryTask = roles.some((role) => TASK_MANAGERS.has(roleKey(role)));
+  // BFF_Project's rule: Admin, Maire and Responsable see every task of a visible project, others their own.
+  const seesEveryTask = hasRole(roles, ...PROJECT_TASK_MANAGER_ROLES);
   const userId = sessionUserId(req);
 
   const page = projectsResult.status === 'fulfilled' ? projectsResult.value.page : undefined;
