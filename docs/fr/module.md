@@ -30,7 +30,7 @@ Ce dépôt contient le serveur BFF et son contrat. Les web services associés po
 
 ## Données et état actuel
 
-Le dashboard lit les API, jamais un autre BFF (MAIR-525), en une seule vague parallèle : Core API `GET /api/v1/user/me/` fournit le prénom (et les rôles d’un jeton sans claim `role`), Project API `GET /api/v1/projects/?limit=6` les premiers projets et leur total, chacun suivi aussitôt de ses tâches (`GET /api/v1/projects/{id}/tasks/`, au plus 6 listes tant que Project API n’offre pas les tâches de l’appelant en un appel), et Calendar API `GET /api/v1/calendar` les événements des 30 prochains jours. Les tâches suivent la visibilité de BFF Project : Admin, Maire et Responsable voient toutes les tâches d’un projet visible, les autres rôles seulement les leurs ; le rôle vient du jeton vérifié. Le BFF ne dispose pas de base propre ni de mutations métier.
+Le dashboard lit les API, jamais un autre BFF (MAIR-525), en une seule vague parallèle : Core API `GET /api/v1/user/me/` fournit le prénom (et les rôles d’un jeton sans claim `role`), Project API `GET /api/v1/projects/?limit=6` les premiers projets et leur total, Project API `GET /api/v1/tasks/?limit=8` les premières tâches actives de tous les projets visibles, échéance la plus proche d’abord, en un seul appel (MAIR-557), et Calendar API `GET /api/v1/calendar` les événements des 30 prochains jours. Les tâches suivent la visibilité de BFF Project : Admin, Maire et Responsable voient toutes les tâches actives des projets visibles, les autres rôles seulement les leurs (`assigned_to`) ; le rôle vient du jeton vérifié. Le BFF ne dispose pas de base propre ni de mutations métier.
 
 ## Périmètre et limites
 

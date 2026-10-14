@@ -5,10 +5,10 @@ import { ContractMockServer, unreachableUrl, type MockReply } from './support/co
 import { OpenApiContract } from './support/openapi-contract';
 import { loadOrvalContract } from './support/orval-contract';
 import type { EventView } from '@mairie360/calendar-api-openapi/model';
-import type { ProjectListItemView, TaskView } from '@mairie360/project-api-openapi/model';
+import type { ProjectListItemView, TaskListItemView } from '@mairie360/project-api-openapi/model';
 import {
   calendarApiUrls, calendarResult, coreApiUrls, coreMe, eventView, projectApiUrls, projectListItem, projectsResult, sessionToken,
-  taskView, tasksResult,
+  taskListItem, taskListResult,
 } from './support/upstream-fixtures';
 
 // /dashboard/bootstrap tested against real HTTP servers simulating Core API, Project API and Calendar API: the
@@ -24,7 +24,7 @@ const calendarApi = new ContractMockServer('CALENDAR_API', loadOrvalContract('@m
 const mocks = [coreApi, projectApi, calendarApi];
 // Templates of the upstream contracts (mock keys); the concrete expected paths come from the URL helpers.
 const CORE = { me: '/api/v1/user/me/' } as const;
-const PROJECT = { projects: '/api/v1/projects/', tasks: '/api/v1/projects/{projectId}/tasks/' } as const;
+const PROJECT = { projects: '/api/v1/projects/', tasks: '/api/v1/tasks/' } as const;
 const CALENDAR = { calendar: '/api/v1/calendar' } as const;
 // Current dashboard contract (documented statuses) and last published contract, used by the clients.
 const dashboardContract = OpenApiContract.load(path.join(__dirname, '..', 'contracts', 'openapi.json'));
@@ -51,17 +51,17 @@ afterEach(() => {
 });
 
 type Scenario = {
-  projects?: ProjectListItemView[]; totalProjects?: number; tasks?: Record<number, TaskView[]>; events?: EventView[];
+  projects?: ProjectListItemView[]; totalProjects?: number; tasks?: TaskListItemView[]; events?: EventView[];
   roles?: string[]; delayMs?: number;
 };
-function mockUpstreams({ projects = [], totalProjects, tasks = {}, events = [], roles = ['User'], delayMs }: Scenario = {}) {
+function mockUpstreams({ projects = [], totalProjects, tasks = [], events = [], roles = ['User'], delayMs }: Scenario = {}) {
   coreApi.on('get', CORE.me, { body: coreMe({ roles, role: roles[0] ?? '' }), delayMs });
   projectApi.on('get', PROJECT.projects, { body: projectsResult(projects, totalProjects), delayMs });
-  projectApi.on('get', PROJECT.tasks, ({ pathParams }) => {
-    const id = Number(pathParams.projectId);
-    return projects.some((project) => project.id === id)
-      ? { body: tasksResult(tasks[id] ?? []), delayMs }
-      : { status: 404, raw: 'Unknown project.', contentType: 'text/plain', outOfContract: true };
+  // Like Project API: the active tasks of every visible project (`tasks` holds those), `assigned_to` and `limit`.
+  projectApi.on('get', PROJECT.tasks, ({ url }) => {
+    const assignedTo = url.searchParams.get('assigned_to');
+    const matching = tasks.filter((task) => assignedTo === null || task.assigned_to === Number(assignedTo));
+    return { body: taskListResult(matching.slice(0, Number(url.searchParams.get('limit') ?? 100)), matching.length), delayMs };
   });
   calendarApi.on('get', CALENDAR.calendar, { body: calendarResult(events), delayMs });
 }
@@ -91,7 +91,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       const budget = projectListItem(42, { name: 'Budget participatif', status: 'Suspended', tasks_total: 4, tasks_completed: 2, due_date: '2026-12-01T00:00:00Z' });
       mockUpstreams({
         projects: [budget], totalProjects: 17,
-        tasks: { 42: [taskView(2, { title: 'Validation', due_date: '2026-11-01T00:00:00Z', priority: 'Urgent', assigned_to: 2 }), taskView(3, { status: 'Completed', assigned_to: 2 })] },
+        tasks: [taskListItem(2, { project_id: 7, project_name: 'Voirie', title: 'Validation', due_date: '2026-11-01T00:00:00Z', priority: 'Urgent', assigned_to: 2 })],
         // 07:00Z is 09:00 in Paris (CEST).
         events: [eventView(9, { name: 'Conseil', start: '2026-09-18T07:00:00Z', location: 'Mairie' })],
       });
@@ -103,7 +103,8 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.body).toEqual({
         userFirstName: 'Alice',
         projects: [{ id: 'project-42', title: 'Budget participatif', progress: 50, status: 'review', dueDate: '2026-12-01T00:00:00Z' }],
-        tasks: [{ id: 'task-2', title: 'Validation', dueDate: '2026-11-01T00:00:00Z', priority: 'high', completed: false, projectId: 'project-42' }],
+        // A task of a project beyond the shown ones keeps its own project.
+        tasks: [{ id: 'task-2', title: 'Validation', dueDate: '2026-11-01T00:00:00Z', priority: 'high', completed: false, projectId: 'project-7' }],
         events: [{ id: 9, title: 'Conseil', date: '2026-09-18', startTime: '09:00', location: 'Mairie' }],
         metrics: { totalProjects: 17 },
         sources: { projects: 'available', tasks: 'available', calendar: 'available' },
@@ -119,7 +120,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
 
       expect(coreApi.requests.map((call) => call.url.pathname)).toEqual([coreApiUrls.getGetMeUrl()]);
       expect(projectApi.requests.map((call) => call.url.pathname).sort())
-        .toEqual([projectApiUrls.getGetProjectsUrl(), projectApiUrls.getGetProjectTasksUrl(1)].sort());
+        .toEqual([projectApiUrls.getGetProjectsUrl(), projectApiUrls.getGetTasksUrl()].sort());
       expect(calendarApi.requests.map((call) => call.url.pathname)).toEqual([calendarApiUrls.getGetCalendarUrl({ start: '', end: '' }).split('?')[0]]);
       for (const call of mocks.flatMap((mock) => mock.requests)) {
         expect(call.method).toBe('GET');
@@ -130,6 +131,9 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
 
       const [page] = projectApi.calls(PROJECT.projects);
       expect(page.url.searchParams.get('limit')).toBe('6');
+      // MAIR-557: the caller's first 8 active tasks; no status filter, so Project API leaves the completed ones out.
+      const [tasks] = projectApi.calls(PROJECT.tasks);
+      expect(Object.fromEntries(tasks.url.searchParams)).toEqual({ limit: '8', assigned_to: '2' });
       const [calendar] = calendarApi.calls(CALENDAR.calendar);
       const start = Date.parse(calendar.url.searchParams.get('start')!);
       const end = Date.parse(calendar.url.searchParams.get('end')!);
@@ -137,39 +141,53 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(Math.abs(end - start - (31 * DAY_MS - 1000))).toBeLessThanOrEqual(3_600_000);
     });
 
-    test('MAIR-525: the profile, the projects and the events start in one parallel wave', async () => {
+    test('MAIR-525/MAIR-557: the profile, the projects, the tasks and the events start in one parallel wave', async () => {
       mockUpstreams({ projects: [projectListItem(1)] });
       // Each answer takes 80 ms: calls chained one after the other would arrive at least 80 ms apart.
       const arrivals: number[] = [];
       const slow = (body: unknown): MockReply => { arrivals.push(Date.now()); return { body, delayMs: 80 }; };
       coreApi.on('get', CORE.me, () => slow(coreMe()));
       projectApi.on('get', PROJECT.projects, () => slow(projectsResult([projectListItem(1)])));
+      projectApi.on('get', PROJECT.tasks, () => slow(taskListResult([])));
       calendarApi.on('get', CALENDAR.calendar, () => slow(calendarResult([])));
+
+      // The role is in the token (MAIR-529): the tasks do not wait for Core's profile.
+      const response = await bootstrap(withClaims({ role: 'User' }));
+
+      expect(response.status).toBe(200);
+      expect(arrivals).toHaveLength(4);
+      expect(Math.max(...arrivals) - Math.min(...arrivals)).toBeLessThan(60);
+    });
+
+    test('MAIR-557: a token without the role claim reads the tasks once Core gave the roles', async () => {
+      mockUpstreams({ roles: ['Responsable'], tasks: [taskListItem(1, { assigned_to: 3 })] });
 
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
-      expect(arrivals).toHaveLength(3);
-      expect(Math.max(...arrivals) - Math.min(...arrivals)).toBeLessThan(60);
-      expect(projectApi.calls(PROJECT.tasks)).toHaveLength(1);
+      const [tasks] = projectApi.calls(PROJECT.tasks);
+      expect(tasks.url.searchParams.has('assigned_to')).toBe(false);
+      expect(response.body.tasks.map((task: { id: string }) => task.id)).toEqual(['task-1']);
     });
 
-    test('MAIR-525: the number of API calls stays the same for 1 and 100 visible projects', async () => {
+    test('MAIR-557: the number of API calls stays the same for 1, 6 and 100 visible projects', async () => {
       const count = async (visible: number) => {
         for (const mock of mocks) mock.reset();
-        // Project API serves the first 6 (limit) and counts every visible project.
-        mockUpstreams({ projects: Array.from({ length: Math.min(visible, 6) }, (_, i) => projectListItem(i + 1)), totalProjects: visible });
+        // Project API serves the first 6 (limit) and counts every visible project; each has 3 tasks of the caller.
+        mockUpstreams({
+          projects: Array.from({ length: Math.min(visible, 6) }, (_, i) => projectListItem(i + 1)), totalProjects: visible,
+          tasks: Array.from({ length: visible * 3 }, (_, i) => taskListItem(i + 1, { project_id: Math.floor(i / 3) + 1, assigned_to: 2 })),
+        });
         const response = await bootstrap();
         expect(response.body.metrics.totalProjects).toBe(visible);
+        expect(response.body.tasks).toHaveLength(Math.min(visible * 3, 8));
         return upstreamCalls();
       };
 
-      const one = await count(1);
-      const hundred = await count(100);
-
-      expect(one).toBe(3 + 1);
-      // At most 6 task lists, whatever the number of projects.
-      expect(hundred).toBe(3 + 6);
+      // Profile, projects, tasks and events: one call each, whatever the number of projects.
+      expect(await count(1)).toBe(4);
+      expect(await count(6)).toBe(4);
+      expect(await count(100)).toBe(4);
     });
 
     test.each([
@@ -196,20 +214,19 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       }
     });
 
-    test('keeps unfinished tasks only, in project order, capped at 8 and tagged with their project', async () => {
-      const projects = [1, 2, 3].map((id) => projectListItem(id));
-      const tasksFor = (projectId: number) => Array.from({ length: 6 }, (_, index) =>
-        taskView(projectId * 10 + index, { status: index % 2 === 1 ? 'Completed' : 'Todo', assigned_to: 2 }));
-      mockUpstreams({ projects, tasks: { 1: tasksFor(1), 2: tasksFor(2), 3: tasksFor(3) } });
+    test('MAIR-557: shows the tasks in the order of Project API (soonest due first), capped at 8, tagged with their project', async () => {
+      const tasks = Array.from({ length: 10 }, (_, index) =>
+        taskListItem(index + 1, { project_id: (index % 3) + 1, assigned_to: 2, due_date: index === 0 ? null : `2026-10-${String(index + 10)}T00:00:00Z` }));
+      mockUpstreams({ projects: [projectListItem(1)], tasks });
 
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      expect(projectApi.calls(PROJECT.tasks)).toHaveLength(3);
+      expect(projectApi.calls(PROJECT.tasks)).toHaveLength(1);
       expect(response.body.tasks.map((task: { id: string; projectId: string }) => `${task.projectId}:${task.id}`)).toEqual([
-        'project-1:task-10', 'project-1:task-12', 'project-1:task-14', 'project-2:task-20', 'project-2:task-22', 'project-2:task-24',
-        'project-3:task-30', 'project-3:task-32',
+        'project-1:task-1', 'project-2:task-2', 'project-3:task-3', 'project-1:task-4', 'project-2:task-5', 'project-3:task-6',
+        'project-1:task-7', 'project-2:task-8',
       ]);
     });
 
@@ -224,7 +241,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       const project = projectListItem(1);
       mockUpstreams({
         projects: [project], roles: coreRoles,
-        tasks: { 1: [taskView(1, { assigned_to: 2 }), taskView(2, { assigned_to: 3 }), taskView(3)] },
+        tasks: [taskListItem(1, { assigned_to: 2 }), taskListItem(2, { assigned_to: 3 }), taskListItem(3)],
       });
 
       const response = await bootstrap(authorization);
@@ -253,14 +270,13 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.body.events[0]).toMatchObject({ date: '2026-09-20', startTime: '00:30' });
     });
 
-    test('an empty project page yields available sections without reading any task list', async () => {
+    test('an empty project page and no task yield available empty sections', async () => {
       mockUpstreams({ projects: [], totalProjects: 0 });
 
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      expect(projectApi.calls(PROJECT.tasks)).toHaveLength(0);
       expect(response.body).toMatchObject({ projects: [], tasks: [], events: [], metrics: { totalProjects: 0 } });
       expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'available' });
     });
@@ -319,7 +335,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
     test.each([
       ['Core API', () => coreApi.on('get', CORE.me, textError(401, 'Jeton expiré'))],
       ['Project API', () => projectApi.on('get', PROJECT.projects, textError(401, 'Jeton expiré'))],
-      ['a Project API task list', () => projectApi.on('get', PROJECT.tasks, textError(401, 'Jeton expiré'))],
+      ['the Project API task list', () => projectApi.on('get', PROJECT.tasks, textError(401, 'Jeton expiré'))],
       ['Calendar API', () => calendarApi.on('get', CALENDAR.calendar, textError(401, 'Jeton expiré'))],
     ])('propagates a 401 from %s even when the other sources succeed', async (_label, override) => {
       mockUpstreams({ projects: [projectListItem(1)] });
@@ -407,27 +423,27 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
-      expect(mocks.map((mock) => mock.requests.length)).toEqual([1, 1, 1]);
+      expect(mocks.map((mock) => mock.requests.length)).toEqual([1, 2, 1]);
     });
   });
 
   describe('degraded sources', () => {
-    test('a 500 from Project API /projects marks projects and tasks unavailable', async () => {
-      mockUpstreams({ events: [eventView(1)] });
+    test('MAIR-557: a 500 from Project API /projects marks only the projects unavailable', async () => {
+      mockUpstreams({ events: [eventView(1)], tasks: [taskListItem(1, { assigned_to: 2 })] });
       projectApi.on('get', PROJECT.projects, textError(500, 'Erreur serveur'));
 
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      expect(response.body).toMatchObject({ projects: [], tasks: [], metrics: { totalProjects: null } });
+      expect(response.body).toMatchObject({ projects: [], metrics: { totalProjects: null } });
+      expect(response.body.tasks).toHaveLength(1);
       expect(response.body.events).toHaveLength(1);
-      expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'unavailable', calendar: 'available' });
-      expect(projectApi.calls(PROJECT.tasks)).toHaveLength(0);
+      expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'available', calendar: 'available' });
     });
 
     test.each([500, 502])('a %i from Calendar API marks only the calendar unavailable', async (status) => {
-      mockUpstreams({ projects: [projectListItem(1)], tasks: { 1: [taskView(1, { assigned_to: 2 })] } });
+      mockUpstreams({ projects: [projectListItem(1)], tasks: [taskListItem(1, { assigned_to: 2 })] });
       calendarApi.on('get', CALENDAR.calendar, textError(status));
 
       const response = await bootstrap();
@@ -451,18 +467,19 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'unavailable' });
     });
 
-    test('a 404 on one task list keeps the other tasks but marks tasks unavailable', async () => {
-      const kept = projectListItem(1);
-      mockUpstreams({ projects: [kept], tasks: { 1: [taskView(5, { assigned_to: 2 })] } });
-      // Project 2 is listed but its tasks answer 404 (deleted between the two reads).
-      projectApi.on('get', PROJECT.projects, { body: projectsResult([kept, projectListItem(2)]) });
+    test.each<[string, MockReply]>([
+      ['a 500', textError(500, 'Erreur serveur')],
+      ['a body without the task list', { body: { total: 3 }, outOfContract: true }],
+    ])('MAIR-557: %s from Project API /tasks marks only the tasks unavailable', async (_label, reply) => {
+      mockUpstreams({ projects: [projectListItem(1)], events: [eventView(1)] });
+      projectApi.on('get', PROJECT.tasks, reply);
 
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      expect(response.body.projects.map((project: { id: string }) => project.id)).toEqual(['project-1', 'project-2']);
-      expect(response.body.tasks).toEqual([expect.objectContaining({ id: 'task-5', projectId: 'project-1' })]);
+      expect(response.body.tasks).toEqual([]);
+      expect(response.body.projects).toHaveLength(1);
       expect(response.body.sources).toEqual({ projects: 'available', tasks: 'unavailable', calendar: 'available' });
     });
 
@@ -475,7 +492,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.status).toBe(200);
       expectDashboardContract(response);
       expect(response.body).toMatchObject({ projects: [], tasks: [], metrics: { totalProjects: null } });
-      expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'unavailable', calendar: 'available' });
+      expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'available', calendar: 'available' });
     });
 
     test('skips an unusable calendar event but keeps the calendar available', async () => {

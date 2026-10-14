@@ -3,8 +3,8 @@ import path from 'node:path';
 import type { JsonSchema, OpenApiContract } from './support/openapi-contract';
 import { loadOrvalContract, resolveOrvalPackage } from './support/orval-contract';
 import {
-  calendarApiUrls, calendarResult, coreApiUrls, coreMe, eventView, projectApiUrls, projectListItem, projectsResult, taskView,
-  tasksResult,
+  calendarApiUrls, calendarResult, coreApiUrls, coreMe, eventView, projectApiUrls, projectListItem, projectsResult, taskListItem,
+  taskListResult,
 } from './support/upstream-fixtures';
 
 // The API contracts (and the last published dashboard contract) are rebuilt from the installed @mairie360/*-openapi
@@ -28,7 +28,7 @@ const CONSUMED = [
   { contract: core, operationId: 'getMe', method: 'get', url: coreApiUrls.getGetMeUrl() },
   { contract: core, operationId: 'health', method: 'get', url: coreApiUrls.getHealthUrl() },
   { contract: project, operationId: 'getProjects', method: 'get', url: projectApiUrls.getGetProjectsUrl({ limit: 6 }) },
-  { contract: project, operationId: 'getProjectTasks', method: 'get', url: projectApiUrls.getGetProjectTasksUrl(1, { limit: 500 }) },
+  { contract: project, operationId: 'getTasks', method: 'get', url: projectApiUrls.getGetTasksUrl({ limit: 8, assigned_to: 2 }) },
   { contract: project, operationId: 'health', method: 'get', url: projectApiUrls.getHealthUrl() },
   { contract: calendar, operationId: 'getCalendar', method: 'get', url: calendarApiUrls.getGetCalendarUrl({ start: '2026-09-01T00:00:00Z', end: '2026-09-30T00:00:00Z' }) },
   { contract: calendar, operationId: 'health', method: 'get', url: calendarApiUrls.getHealthUrl() },
@@ -68,7 +68,7 @@ describe('upstream fixtures conform to the upstream contracts', () => {
   test.each([
     ['Core getMe 200', core, coreApiUrls.getGetMeUrl(), coreMe()],
     ['Project getProjects 200', project, projectApiUrls.getGetProjectsUrl(), projectsResult([projectListItem(1, { tasks_total: 3, tasks_completed: 1 })], 12)],
-    ['Project getProjectTasks 200', project, projectApiUrls.getGetProjectTasksUrl(1), tasksResult([taskView(1), taskView(2, { status: 'Completed', assigned_to: 2 })])],
+    ['Project getTasks 200', project, projectApiUrls.getGetTasksUrl(), taskListResult([taskListItem(1), taskListItem(2, { project_id: 3, assigned_to: 2 })], 14)],
     ['Calendar getCalendar 200', calendar, calendarApiUrls.getGetCalendarUrl({ start: '', end: '' }), calendarResult([eventView(1), eventView(2, { location: 'Mairie' })])],
   ] as const)('%s', (_name, contract, url, body) => {
     expect(contract.validate(responseSchema(contract, 'get', url, 200), JSON.parse(JSON.stringify(body)))).toEqual([]);
@@ -77,8 +77,8 @@ describe('upstream fixtures conform to the upstream contracts', () => {
 
 describe('contract validator', () => {
   test('reports missing required properties, wrong enums and wrong types', () => {
-    const schema = responseSchema(project, 'get', projectApiUrls.getGetProjectTasksUrl(1), 200);
-    const invalid = { tasks: [{ ...taskView(1), status: 'Done', due_date: 20261001 }], total: 1 } as { tasks: Array<Record<string, unknown>>; total: number };
+    const schema = responseSchema(project, 'get', projectApiUrls.getGetTasksUrl(), 200);
+    const invalid = { tasks: [{ ...taskListItem(1), status: 'Done', due_date: 20261001 }], total: 1 } as { tasks: Array<Record<string, unknown>>; total: number };
     delete invalid.tasks[0].title;
     expect(project.validate(schema, invalid)).toEqual(expect.arrayContaining([
       expect.stringContaining('$.tasks[0].title: propriété requise manquante'),
