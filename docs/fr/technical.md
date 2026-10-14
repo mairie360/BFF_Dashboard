@@ -6,7 +6,7 @@
 
 Serveur Express 5.1.0 écrit en TypeScript. Les schémas Zod et leur registre OpenAPI décrivent les objets échangés; les routeurs adaptent les services amont aux besoins des interfaces.
 
-Après la résolution de l’identité, les sources Project et Calendar sont interrogées en parallèle. La liste de tâches transverse de Project API fournit les tâches actives, indépendamment de la section projets. Les événements sont triés par date et heure (les dates `YYYY-MM-DD` et `DD-MM-YYYY` sont ordonnées chronologiquement); un événement inexploitable, par exemple sans `id`, est ignoré sans rendre le calendrier indisponible. `sources` distingue une liste vide d’une source indisponible; `metrics.totalProjects` vaut `null` si le résumé Project manque.
+Après la résolution de l’identité, les sources Project et Calendar sont interrogées en parallèle. La liste de tâches transverse de Project API fournit les tâches actives, indépendamment de la section projets, triées par échéance (sans échéance en dernier). Un événement récurrent est affiché à sa prochaine occurrence (Calendar API le liste avec le premier jour de sa série), et un événement ou une occurrence déjà terminés sont exclus (MAIR-563). Les événements sont triés par date et heure (les dates `YYYY-MM-DD` et `DD-MM-YYYY` sont ordonnées chronologiquement); un événement inexploitable, par exemple sans `id`, est ignoré sans rendre le calendrier indisponible. `sources` distingue une liste vide d’une source indisponible; `metrics.totalProjects` vaut `null` si le résumé Project manque.
 
 ## Données et persistance
 

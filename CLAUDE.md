@@ -88,6 +88,10 @@ Project `GET /api/v1/tasks/?limit=8` (the first active tasks across every visibl
 `assigned_to=<caller>` unless the caller manages tasks; a token without the `role` claim waits for Core's profile
 before this call), and Calendar `GET /api/v1/calendar?start=&end=` (next 30 days of the `Europe/Paris`
 calendar, `parisDateWindow(30)` converted with the lib's `wallClockToUtc`; event times shown with `utcToWallClock`).
+MAIR-563: tasks are sorted by due date (none last) before the cap; Calendar API lists a recurring event once with
+the start of its series, so `src/occurrences.ts` (`nextOccurrence`) shows its next repetition (same rule as the
+calendar front: daily / weekly from the Monday of the first week on `days_of_week` / monthly on the same day,
+`interval`, `ends_on` inclusive) and leaves out every occurrence already over (end before now), one-off events too.
 The mappings copy BFF_Project's vocabulary (statuses, priorities, `project-<id>` / `task-<id>`) and visibility:
 Admin/Maire/Responsable see every active task, other roles only those assigned to them; the roles come from
 the token (`sessionRole`, MAIR-529) or Core's profile for a token without it. A 401 from any upstream propagates;

@@ -6,7 +6,7 @@
 
 Express 5.1.0 server written in TypeScript. Zod schemas and their OpenAPI registry describe exchanged objects; routers adapt upstream services to interface needs.
 
-After identity resolution, Project and Calendar sources are queried in parallel. Project API's cross-project task list supplies the active tasks, independently of the projects section. Events are sorted by date and time (`YYYY-MM-DD` and `DD-MM-YYYY` dates are both ordered chronologically); an event the dashboard cannot use, such as one without an `id`, is skipped without making the calendar unavailable. `sources` distinguishes an empty list from an unavailable source; `metrics.totalProjects` is `null` when the Project summary is missing.
+After identity resolution, Project and Calendar sources are queried in parallel. Project API's cross-project task list supplies the active tasks, independently of the projects section, sorted by due date (tasks without one last). A recurring event is shown at its next occurrence (Calendar API lists it with the first day of its series), and an event or occurrence already over is left out (MAIR-563). Events are sorted by date and time (`YYYY-MM-DD` and `DD-MM-YYYY` dates are both ordered chronologically); an event the dashboard cannot use, such as one without an `id`, is skipped without making the calendar unavailable. `sources` distinguishes an empty list from an unavailable source; `metrics.totalProjects` is `null` when the Project summary is missing.
 
 ## Data and persistence
 
