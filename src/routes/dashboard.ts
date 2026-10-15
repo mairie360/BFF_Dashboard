@@ -33,10 +33,9 @@ const ProjectsPage = z.object({
   })),
   total: z.number(),
 });
-const ProjectTasks = z.object({
+const TasksPage = z.object({
   tasks: z.array(z.object({
-    id: z.number(), title: z.string(), status: z.string(), priority: z.string(), due_date: z.string().nullish(),
-    assigned_to: z.number().nullish(),
+    id: z.number(), project_id: z.number(), title: z.string(), priority: z.string(), due_date: z.string().nullish(),
   })),
 });
 const CalendarPage = z.object({ events: z.array(z.unknown()) });
@@ -44,7 +43,6 @@ const CalendarEvent = z.object({ id: z.number(), name: z.string(), start: z.stri
 // Only a refused session is relayed (the one upstream status the contract declares); anything else is a 502.
 // Idempotent reads: retried once on a transient failure.
 const READ = { declared: [401], retry: true } as const;
-/** Projects shown, and tasks of theirs read (Project API has no list of the caller's tasks yet, see MAIR-524). */
 const PROJECTS_SHOWN = 6;
 const TASKS_SHOWN = 8;
 const EVENTS_SHOWN = 6;
@@ -61,14 +59,21 @@ registry.registerPath({ method: 'get', path: '/dashboard/bootstrap', responses: 
   503: { description: 'An upstream API is not configured', content: { 'application/json': { schema: ErrorSchema } } },
 } });
 
-/** The first projects visible to the caller, then the tasks of each of them, read together. */
-async function readProjectsAndTasks(req: Request) {
-  const page = await callUpstream('PROJECT_API', async () => ProjectsPage.parse(
+/** The first projects visible to the caller and their total. */
+function readProjects(req: Request) {
+  return callUpstream('PROJECT_API', async () => ProjectsPage.parse(
     (await projectApi.getProjects({ limit: PROJECTS_SHOWN }, asCaller('PROJECT_API', req))).data), READ);
-  // At most PROJECTS_SHOWN lists, read together.
-  const tasks = await Promise.allSettled(page.projects.map((project) => callUpstream('PROJECT_API', async () => ProjectTasks.parse(
-    (await projectApi.getProjectTasks(project.id, { limit: 500 }, asCaller('PROJECT_API', req))).data), READ)));
-  return { page, tasks };
+}
+
+/**
+ * The first active tasks the caller sees, across every visible project, soonest due first, in one call (MAIR-557).
+ * BFF_Project's rule: Admin, Maire and Responsable see every task of a visible project, others their own
+ * (`assigned_to`). Without a status filter Project API lists the active tasks only (no `Completed` one).
+ */
+async function readTasks(req: Request, roles: Promise<string[]>) {
+  const assignedTo = hasRole(await roles, ...PROJECT_TASK_MANAGER_ROLES) ? {} : { assigned_to: sessionUserId(req) };
+  return callUpstream('PROJECT_API', async () => TasksPage.parse(
+    (await projectApi.getTasks({ limit: TASKS_SHOWN, ...assignedTo }, asCaller('PROJECT_API', req))).data), READ);
 }
 
 /** The caller's events of the next 30 days on the Europe/Paris calendar. */
@@ -81,29 +86,22 @@ async function readEvents(req: Request) {
 }
 
 router.get('/bootstrap', async (req, res) => {
-  // One wave (MAIR-525): the profile, the projects (each followed at once by its tasks) and the events start
-  // together, from the APIs; no other BFF is called. A refused session (401) from any call fails the whole answer.
-  const [meResult, projectsResult, calendarResult] = await Promise.allSettled([
-    callUpstream('CORE_API', async () => CoreMe.parse((await coreApi.getMe(asCaller('CORE_API', req))).data), READ),
-    readProjectsAndTasks(req),
-    readEvents(req),
+  // One wave (MAIR-525): the profile, the projects, the tasks and the events start together, from the APIs; no other
+  // BFF is called. A refused session (401) from any call fails the whole answer.
+  const me = callUpstream('CORE_API', async () => CoreMe.parse((await coreApi.getMe(asCaller('CORE_API', req))).data), READ);
+  // The role comes from the verified token (MAIR-529); only a token without it waits for Core's profile to read tasks.
+  const tokenRole = sessionRole(req);
+  const roles = tokenRole !== undefined ? Promise.resolve([tokenRole]) : me.then((profile) => profile.roles ?? (profile.role ? [profile.role] : []));
+  const [meResult, projectsResult, tasksResult, calendarResult] = await Promise.allSettled([
+    me, readProjects(req), readTasks(req, roles), readEvents(req),
   ]);
-  const taskResults = projectsResult.status === 'fulfilled' ? projectsResult.value.tasks : [];
-  for (const result of [projectsResult, calendarResult, ...taskResults]) {
+  for (const result of [projectsResult, tasksResult, calendarResult]) {
     if (result.status === 'rejected' && result.reason instanceof HttpError && result.reason.status === 401) throw result.reason;
   }
   // The profile is required: its failure is the answer.
   if (meResult.status === 'rejected') throw meResult.reason;
-  const me = meResult.value;
 
-  // The role comes from the verified token (MAIR-529), or from Core's profile for a token without it.
-  const tokenRole = sessionRole(req);
-  const roles = tokenRole !== undefined ? [tokenRole] : me.roles ?? (me.role ? [me.role] : []);
-  // BFF_Project's rule: Admin, Maire and Responsable see every task of a visible project, others their own.
-  const seesEveryTask = hasRole(roles, ...PROJECT_TASK_MANAGER_ROLES);
-  const userId = sessionUserId(req);
-
-  const page = projectsResult.status === 'fulfilled' ? projectsResult.value.page : undefined;
+  const page = projectsResult.status === 'fulfilled' ? projectsResult.value : undefined;
   const projects = (page?.projects ?? []).map((project) => ({
     id: projectPublicId(project.id),
     title: project.name,
@@ -111,20 +109,16 @@ router.get('/bootstrap', async (req, res) => {
     status: PROJECT_STATUS[project.status] ?? 'todo',
     dueDate: project.due_date ?? new Date().toISOString(),
   }));
-  const tasks = (page?.projects ?? []).flatMap((project, index) => {
-    const result = taskResults[index];
-    if (result?.status !== 'fulfilled') return [];
-    return result.value.tasks
-      .filter((task) => task.status !== 'Completed' && (seesEveryTask || task.assigned_to === userId))
-      .map((task) => ({
-        id: `task-${task.id}`,
-        title: task.title,
-        dueDate: task.due_date ?? new Date().toISOString(),
-        priority: TASK_PRIORITY[task.priority] ?? 'medium',
-        completed: false,
-        projectId: projectPublicId(project.id),
-      }));
-  });
+  const tasks = tasksResult.status === 'fulfilled'
+    ? tasksResult.value.tasks.map((task) => ({
+      id: `task-${task.id}`,
+      title: task.title,
+      dueDate: task.due_date ?? new Date().toISOString(),
+      priority: TASK_PRIORITY[task.priority] ?? 'medium',
+      completed: false,
+      projectId: projectPublicId(task.project_id),
+    }))
+    : [];
   // Unusable events are skipped one by one; the wall clock is the Europe/Paris one, like BFF Calendar shows it.
   const events = calendarResult.status === 'fulfilled'
     ? calendarResult.value.events.flatMap((raw) => {
@@ -137,14 +131,14 @@ router.get('/bootstrap', async (req, res) => {
     : [];
 
   return res.json(DashboardBootstrapSchema.parse({
-    userFirstName: me.first_name,
+    userFirstName: meResult.value.first_name,
     projects,
     tasks: tasks.slice(0, TASKS_SHOWN),
     events: events.sort((a, b) => eventSortKey(a).localeCompare(eventSortKey(b))).slice(0, EVENTS_SHOWN),
     metrics: { totalProjects: page ? page.total : null },
     sources: {
       projects: page ? 'available' : 'unavailable',
-      tasks: page && taskResults.every((result) => result.status === 'fulfilled') ? 'available' : 'unavailable',
+      tasks: tasksResult.status === 'fulfilled' ? 'available' : 'unavailable',
       calendar: calendarResult.status === 'fulfilled' ? 'available' : 'unavailable',
     },
   }));

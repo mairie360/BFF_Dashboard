@@ -6,12 +6,12 @@ import type { GetMeResponseView } from '@mairie360/core-api-openapi/model';
 import { getProjectAPIMairie360 } from '@mairie360/project-api-openapi/endpoints/projectAPIMairie360';
 import {
   type GetProjectsResultView,
-  type GetTasksResultView,
+  type GetTasksListResultView,
   type ProjectListItemView,
   ProjectStatus,
+  type TaskListItemView,
   TaskPriority,
   TaskStatus,
-  type TaskView,
 } from '@mairie360/project-api-openapi/model';
 
 // Upstream bodies typed by the models of the installed @mairie360/*-api-openapi packages: a field added, removed or
@@ -54,15 +54,16 @@ export function projectsResult(projects: ProjectListItemView[], total = projects
   };
 }
 
-export function taskView(id: number, overrides: Partial<TaskView> = {}): TaskView {
+/** A task of `GET /api/v1/tasks/` (MAIR-524): the fields of a project's task and its project. */
+export function taskListItem(id: number, overrides: Partial<TaskListItemView> = {}): TaskListItemView {
   return {
-    id, title: `Tâche ${id}`, description: '', status: TaskStatus.Todo, priority: TaskPriority.Medium,
-    due_date: '2026-10-01T00:00:00Z', assigned_to: null, fields: [], ...overrides,
+    id, project_id: 1, project_name: 'Projet 1', title: `Tâche ${id}`, description: '', status: TaskStatus.Todo,
+    priority: TaskPriority.Medium, due_date: '2026-10-01T00:00:00Z', assigned_to: null, archived_at: null, fields: [], ...overrides,
   };
 }
 
-/** `GET /api/v1/projects/{id}/tasks/`. */
-export const tasksResult = (tasks: TaskView[]): GetTasksResultView => ({ tasks, total: tasks.length });
+/** A page of `GET /api/v1/tasks/`; `total` counts every matching task, beyond the page. */
+export const taskListResult = (tasks: TaskListItemView[], total = tasks.length): GetTasksListResultView => ({ tasks, total });
 
 /**
  * An event of `GET /api/v1/calendar`. `start` / `end` are UTC instants. Since MAIR-524 the list carries the members
