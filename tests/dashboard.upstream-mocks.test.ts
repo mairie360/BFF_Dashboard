@@ -36,10 +36,15 @@ const TOKEN = sessionToken(2);
 const SESSION = `Bearer ${TOKEN}`;
 const withClaims = (claims: object) => `Bearer ${sessionToken(2, undefined, undefined, claims)}`;
 const DAY_MS = 86_400_000;
+// Only Date is faked: the HTTP servers and supertest keep the real timers.
+const REAL_TIMERS = ['nextTick', 'setImmediate', 'clearImmediate', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'queueMicrotask', 'hrtime', 'performance'] as const;
+const at = (now: string) => jest.useFakeTimers({ now: new Date(now), doNotFake: [...REAL_TIMERS] });
 
 beforeAll(async () => { await Promise.all(mocks.map((mock) => mock.start())); });
 afterAll(async () => { await Promise.all(mocks.map((mock) => mock.stop())); });
 beforeEach(() => {
+  // The fixtures' events are in September 2026: the dashboard leaves out those already over (MAIR-563).
+  at('2026-09-17T10:00:00Z');
   for (const mock of mocks) {
     mock.reset();
     process.env[`${mock.service}_URL`] = mock.url;
@@ -47,6 +52,7 @@ beforeEach(() => {
   }
 });
 afterEach(() => {
+  jest.useRealTimers();
   expect(mocks.flatMap((mock) => mock.violations)).toEqual([]);
 });
 
@@ -196,11 +202,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       // 00:15 in Paris (CET, UTC+1) is still 23:15 the day before in UTC, across a year boundary.
       ['winter time', '2026-12-31T23:15:00Z', '2026-12-31T23:00:00Z', '2027-01-31T22:59:59Z'],
     ])('asks Calendar API for the next 30 days of the Europe/Paris calendar (%s)', async (_label, now, start, end) => {
-      // Only Date is faked: the HTTP servers and supertest keep the real timers.
-      jest.useFakeTimers({
-        now: new Date(now),
-        doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'queueMicrotask', 'hrtime', 'performance'],
-      });
+      at(now);
       try {
         mockUpstreams();
 
@@ -214,9 +216,9 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       }
     });
 
-    test('MAIR-557: shows the tasks in the order of Project API (soonest due first), capped at 8, tagged with their project', async () => {
+    test('MAIR-557: shows the tasks soonest due first, capped at 8, tagged with their project', async () => {
       const tasks = Array.from({ length: 10 }, (_, index) =>
-        taskListItem(index + 1, { project_id: (index % 3) + 1, assigned_to: 2, due_date: index === 0 ? null : `2026-10-${String(index + 10)}T00:00:00Z` }));
+        taskListItem(index + 1, { project_id: (index % 3) + 1, assigned_to: 2, due_date: `2026-10-${String(index + 10)}T00:00:00Z` }));
       mockUpstreams({ projects: [projectListItem(1)], tasks });
 
       const response = await bootstrap();
@@ -248,6 +250,49 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.tasks.map((task: { id: string }) => task.id)).toEqual(expected);
+    });
+
+    test('MAIR-563: sorts the tasks of several projects by due date, those without one last', async () => {
+      // Out of order on purpose: the dashboard sorts them whatever the order Project API answers.
+      mockUpstreams({
+        tasks: [
+          taskListItem(1, { project_id: 1, assigned_to: 2, due_date: null }),
+          taskListItem(2, { project_id: 2, assigned_to: 2, due_date: '2026-11-03T00:00:00Z' }),
+          taskListItem(3, { project_id: 3, assigned_to: 2, due_date: '2026-10-01T00:00:00Z' }),
+          taskListItem(4, { project_id: 1, assigned_to: 2, due_date: '2026-10-20T00:00:00Z' }),
+        ],
+      });
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expect(response.body.tasks.map((task: { id: string; projectId: string }) => `${task.projectId}:${task.id}`))
+        .toEqual(['project-3:task-3', 'project-1:task-4', 'project-2:task-2', 'project-1:task-1']);
+    });
+
+    test('MAIR-563: shows a weekly event started in the past at its next occurrence and leaves out finished events', async () => {
+      at('2026-10-14T10:00:00Z'); // Wednesday, 12:00 in Paris
+      mockUpstreams({
+        events: [
+          // Every Thursday since 2026-10-01, 09:00-10:00 in Paris: Calendar API lists it with its first day.
+          eventView(1, { name: 'Permanence', start: '2026-10-01T07:00:00Z', end: '2026-10-01T08:00:00Z', recurrence: { frequency: 'weekly', interval: 1 } }),
+          // One-off, this morning: over.
+          eventView(2, { start: '2026-10-14T07:00:00Z', end: '2026-10-14T08:00:00Z' }),
+          // One-off, this evening.
+          eventView(3, { start: '2026-10-14T16:00:00Z', end: '2026-10-14T17:00:00Z' }),
+          // Weekly series that ended yesterday.
+          eventView(4, { start: '2026-09-01T07:00:00Z', end: '2026-09-01T08:00:00Z', recurrence: { frequency: 'weekly', interval: 1, ends_on: '2026-10-13' } }),
+        ],
+      });
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      expect(response.body.events).toEqual([
+        { id: 3, title: 'Événement 3', date: '2026-10-14', startTime: '18:00' },
+        { id: 1, title: 'Permanence', date: '2026-10-15', startTime: '09:00' },
+      ]);
     });
 
     test('sorts events by Paris date then start time, caps them at 6', async () => {

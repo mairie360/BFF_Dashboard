@@ -2,11 +2,11 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import { z } from 'zod';
 import {
-  HttpError, PROJECT_TASK_MANAGER_ROLES, asCaller, callUpstream, hasRole, parisDateWindow, sessionRole, sessionUserId, utcToWallClock,
-  wallClockToUtc,
+  HttpError, PROJECT_TASK_MANAGER_ROLES, asCaller, callUpstream, hasRole, parisDateWindow, sessionRole, sessionUserId, wallClockToUtc,
 } from '@mairie360/bffs-lib';
 import { ErrorSchema, registry } from '../openapi-registry';
 import { calendarApi, coreApi, projectApi } from '../clients/upstreams';
+import { nextOccurrence } from '../occurrences';
 
 const router = Router();
 const Project = z.object({
@@ -39,7 +39,12 @@ const TasksPage = z.object({
   })),
 });
 const CalendarPage = z.object({ events: z.array(z.unknown()) });
-const CalendarEvent = z.object({ id: z.number(), name: z.string(), start: z.string(), location: z.string().nullish() });
+const CalendarEvent = z.object({
+  id: z.number(), name: z.string(), start: z.string(), end: z.string(), location: z.string().nullish(),
+  recurrence: z.object({
+    frequency: z.string(), interval: z.number(), days_of_week: z.array(z.number()).nullish(), ends_on: z.string().nullish(),
+  }).nullish(),
+});
 // Only a refused session is relayed (the one upstream status the contract declares); anything else is a 502.
 // Idempotent reads: retried once on a transient failure.
 const READ = { declared: [401], retry: true } as const;
@@ -51,6 +56,7 @@ const EVENTS_SHOWN = 6;
 const PROJECT_STATUS: Record<string, z.infer<typeof Project>['status']> = { Active: 'in-progress', Suspended: 'review', Completed: 'done', Error: 'todo' };
 const TASK_PRIORITY: Record<string, z.infer<typeof Task>['priority']> = { Low: 'low', Medium: 'medium', High: 'high', Urgent: 'high', Error: 'medium' };
 const projectPublicId = (id: number) => `project-${id}`;
+const dueKey = (dueDate: string | null | undefined) => (dueDate ? Date.parse(dueDate) || Infinity : Infinity);
 
 registry.registerPath({ method: 'get', path: '/dashboard/bootstrap', responses: {
   200: { description: 'Data read from Core API, Project API and Calendar API in one parallel wave, within the session scope', content: { 'application/json': { schema: DashboardBootstrapSchema } } },
@@ -76,10 +82,9 @@ async function readTasks(req: Request, roles: Promise<string[]>) {
     (await projectApi.getTasks({ limit: TASKS_SHOWN, ...assignedTo }, asCaller('PROJECT_API', req))).data), READ);
 }
 
-/** The caller's events of the next 30 days on the Europe/Paris calendar. */
-async function readEvents(req: Request) {
+/** The caller's events of `from`..`to` (Paris days). */
+async function readEvents(req: Request, { from, to }: { from: string; to: string }) {
   // Between 00:00 and 02:00 in Paris, the UTC day is still the day before.
-  const { from, to } = parisDateWindow(30);
   const params = { start: wallClockToUtc(from, '00:00:00'), end: wallClockToUtc(to, '23:59:59') };
   return callUpstream('CALENDAR_API', async () => CalendarPage.parse(
     (await calendarApi.getCalendar(params, asCaller('CALENDAR_API', req))).data), READ);
@@ -91,9 +96,12 @@ router.get('/bootstrap', async (req, res) => {
   const me = callUpstream('CORE_API', async () => CoreMe.parse((await coreApi.getMe(asCaller('CORE_API', req))).data), READ);
   // The role comes from the verified token (MAIR-529); only a token without it waits for Core's profile to read tasks.
   const tokenRole = sessionRole(req);
+  // The next 30 days of the Europe/Paris calendar, read once so the events and their occurrences share it.
+  const now = new Date();
+  const window = parisDateWindow(30, now);
   const roles = tokenRole !== undefined ? Promise.resolve([tokenRole]) : me.then((profile) => profile.roles ?? (profile.role ? [profile.role] : []));
   const [meResult, projectsResult, tasksResult, calendarResult] = await Promise.allSettled([
-    me, readProjects(req), readTasks(req, roles), readEvents(req),
+    me, readProjects(req), readTasks(req, roles), readEvents(req, window),
   ]);
   for (const result of [projectsResult, tasksResult, calendarResult]) {
     if (result.status === 'rejected' && result.reason instanceof HttpError && result.reason.status === 401) throw result.reason;
@@ -110,7 +118,8 @@ router.get('/bootstrap', async (req, res) => {
     dueDate: project.due_date ?? new Date().toISOString(),
   }));
   const tasks = tasksResult.status === 'fulfilled'
-    ? tasksResult.value.tasks.map((task) => ({
+    // Soonest due first, tasks without due date last (MAIR-563): Project API answers in that order, kept even if not.
+    ? [...tasksResult.value.tasks].sort((a, b) => dueKey(a.due_date) - dueKey(b.due_date)).map((task) => ({
       id: `task-${task.id}`,
       title: task.title,
       dueDate: task.due_date ?? new Date().toISOString(),
@@ -119,14 +128,16 @@ router.get('/bootstrap', async (req, res) => {
       projectId: projectPublicId(task.project_id),
     }))
     : [];
-  // Unusable events are skipped one by one; the wall clock is the Europe/Paris one, like BFF Calendar shows it.
+  // Unusable events are skipped one by one; the wall clock is the Europe/Paris one, like BFF Calendar shows it. A
+  // recurring event is shown at its next repetition, and an occurrence already over is left out (MAIR-563).
   const events = calendarResult.status === 'fulfilled'
     ? calendarResult.value.events.flatMap((raw) => {
       const parsed = CalendarEvent.safeParse(raw);
       if (!parsed.success) return [];
       const event = parsed.data;
-      const start = utcToWallClock(event.start);
-      return [{ id: event.id, title: event.name, date: start.date, startTime: start.time, ...(event.location ? { location: event.location } : {}) }];
+      const next = nextOccurrence(event, window.to, now);
+      if (!next) return [];
+      return [{ id: event.id, title: event.name, date: next.date, startTime: next.time, ...(event.location ? { location: event.location } : {}) }];
     })
     : [];
 
