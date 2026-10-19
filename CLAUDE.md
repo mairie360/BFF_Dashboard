@@ -100,6 +100,13 @@ any other upstream failure degrades that section to `sources.<x> = "unavailable"
 projects / 8 tasks / 6 events. The upstream-mock tests check the single wave (arrival times) and a constant number
 of calls (4) for 1, 6 and 100 visible projects.
 
+### Telemetry (MAIR-504)
+
+`src/telemetry.ts` calls the lib's `startTelemetry` and is imported by `src/index.ts` right after `dotenv/config`,
+before the app: the Express instrumentation only hooks Express if it is not loaded yet (Express stays external in
+the esbuild bundle). Off without `OTEL_EXPORTER_OTLP_ENDPOINT`; the lib exports only an attribute allowlist, so
+never add span attributes holding request values (ids, URLs, bodies, headers). Tests export nothing.
+
 ## Tests with contract-driven upstream mocks
 
 `tests/dashboard.upstream-mocks.test.ts` serves Core / Project / Calendar API from real local HTTP
