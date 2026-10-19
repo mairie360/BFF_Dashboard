@@ -48,7 +48,7 @@ export function projectsResult(projects: ProjectListItemView[], total = projects
     projects,
     total,
     summary: {
-      by_status: { active: projects.length, suspended: 0, completed: 0, other: 0 },
+      by_status: { todo: 0, active: projects.length, review: 0, suspended: 0, completed: 0, other: 0 },
       by_priority: { low: 0, medium: projects.length, high: 0 },
     },
   };

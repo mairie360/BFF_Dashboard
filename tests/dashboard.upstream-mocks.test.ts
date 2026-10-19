@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import request from 'supertest';
 import app from '../src/app';
 import { ContractMockServer, unreachableUrl, type MockReply } from './support/contract-mock-server';
@@ -420,6 +421,31 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expectDashboardContract(response);
       expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message, details: [] } });
       expect(JSON.stringify(response.body)).not.toMatch(/boom|secret/);
+    });
+
+    test('mair_562 a persistent Core 429 on /user/me is answered 429 with Retry-After, not 502', async () => {
+      mockUpstreams();
+      coreApi.on('get', CORE.me, { ...textError(429, 'Too many requests'), headers: { 'Retry-After': '30' } });
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(429);
+      expect(response.headers['retry-after']).toBe('30');
+      expectDashboardContract(response);
+      expect(response.body.error.code).toBe('TOO_MANY_REQUESTS');
+    });
+
+    test('mair_562 every route answering 502 also declares the upstream 429 relayed by bffs-lib', () => {
+      const document = JSON.parse(readFileSync(path.join(__dirname, '..', 'contracts', 'openapi.json'), 'utf8')) as {
+        paths: Record<string, Record<string, { responses?: Record<string, unknown> }>>;
+      };
+      const undeclared = Object.entries(document.paths)
+        .filter(([route]) => route !== '/check_apis')
+        .flatMap(([route, operations]) => Object.entries(operations).map(([method, operation]) => ({ route, method, responses: operation.responses ?? {} })))
+        .filter(({ responses }) => '502' in responses && !('429' in responses))
+        .map(({ method, route }) => `${method.toUpperCase()} ${route}`);
+
+      expect(undeclared).toEqual([]);
     });
 
     test('returns 503 when Core API is not configured', async () => {

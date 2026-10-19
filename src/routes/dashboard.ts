@@ -61,6 +61,8 @@ const dueKey = (dueDate: string | null | undefined) => (dueDate ? Date.parse(due
 registry.registerPath({ method: 'get', path: '/dashboard/bootstrap', responses: {
   200: { description: 'Data read from Core API, Project API and Calendar API in one parallel wave, within the session scope', content: { 'application/json': { schema: DashboardBootstrapSchema } } },
   401: { description: 'Missing or invalid session, or session refused by an upstream API', content: { 'application/json': { schema: ErrorSchema } } },
+  // bffs-lib >= 2.4.0 relays an upstream 429 with its Retry-After instead of a 502 (MAIR-562).
+  429: { description: 'Core API rate limit reached: retry after the Retry-After header (seconds)', content: { 'application/json': { schema: ErrorSchema } } },
   502: { description: 'User profile unavailable: Core API unreachable, failed or answered an invalid body', content: { 'application/json': { schema: ErrorSchema } } },
   503: { description: 'An upstream API is not configured', content: { 'application/json': { schema: ErrorSchema } } },
 } });
