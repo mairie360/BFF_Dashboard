@@ -6,11 +6,11 @@
 
 Express 5.1.0 server written in TypeScript. Zod schemas and their OpenAPI registry describe exchanged objects; routers adapt upstream services to interface needs.
 
-After identity resolution, Project and Calendar sources are queried in parallel. Project details supply unfinished tasks. Events are sorted by date and time (`YYYY-MM-DD` and `DD-MM-YYYY` dates are both ordered chronologically); an event the dashboard cannot use, such as one without an `id`, is skipped without making the calendar unavailable. `sources` distinguishes an empty list from an unavailable source; `metrics.totalProjects` is `null` when the Project summary is missing.
+After identity resolution, Project and Calendar sources are queried in parallel. Project API's cross-project task list supplies the active tasks, independently of the projects section, sorted by due date (tasks without one last). A recurring event is shown at its next occurrence (Calendar API lists it with the first day of its series), and an event or occurrence already over is left out (MAIR-563). Events are sorted by date and time (`YYYY-MM-DD` and `DD-MM-YYYY` dates are both ordered chronologically); an event the dashboard cannot use, such as one without an `id`, is skipped without making the calendar unavailable. `sources` distinguishes an empty list from an unavailable source; `metrics.totalProjects` is `null` when the Project summary is missing.
 
 ## Data and persistence
 
-BFF User `/me` supplies identity. BFF Project supplies `/projects-page?page=1&limit=6`, followed by each project’s details for tasks. BFF Calendar supplies bootstrap for the date range. The BFF has no database of its own and no business mutations.
+The dashboard reads the APIs, never another BFF (MAIR-525), in one parallel wave: Core API `GET /api/v1/user/me/` supplies the first name (and the roles of a token without the `role` claim), Project API `GET /api/v1/projects/?limit=6` the first projects and their total, Project API `GET /api/v1/tasks/?limit=8` the first active tasks across every visible project, soonest due first, in one call (MAIR-557), and Calendar API `GET /api/v1/calendar` the events of the next 30 days. Tasks follow BFF Project's visibility: Admin, Maire and Responsable see every active task of the visible projects, other roles only theirs (`assigned_to`); the role comes from the verified token. The BFF has no database of its own and no business mutations.
 
 The overview is limited and does not replace complete module listings. Unavailable sources are flagged and missing metrics remain null or absent. Reports and population or performance metrics are not supplied by this contract.
 
@@ -28,9 +28,9 @@ Create `.env` in the repository root. Local HTTP configuration example to adapt 
 
 ```dotenv
 PORT=4007
-USER_BFF_URL=http://localhost:4000
-PROJECT_BFF_URL=http://localhost:4001
-CALENDAR_BFF_URL=http://localhost:4002
+CORE_API_URL=http://localhost:3000
+PROJECT_API_URL=http://localhost:3001
+CALENDAR_API_URL=http://localhost:3002
 ```
 
 ```bash
@@ -45,7 +45,7 @@ Check the process, then open the interactive documentation:
 curl --fail --silent --show-error http://localhost:4007/health
 ```
 
-Swagger UI: `http://localhost:4007/docs`. JSON specification: `/openapi.json`, with `/swagger.json` as an alias. `/health` checks the process; `/check_apis` is a separate dependency diagnostic: it calls the `/health` operation of BFF User, Project and Calendar (5-second timeout, same `*_URL` variables as real calls) and answers `{ status: 'OK' | 'Error', user_bff, project_bff, calendar_bff }` with `Connected` or `Unreachable` for each (`CheckApisResponse` in the contract), 200 when all are reachable, 502 otherwise; an unconfigured service is `Unreachable`.
+Swagger UI: `http://localhost:4007/docs`. JSON specification: `/openapi.json`, with `/swagger.json` as an alias. `/health` checks the process; `/check_apis` is a separate dependency diagnostic: it calls the `/health` operation of Core API, Project API and Calendar API (5-second timeout, same `*_URL` variables as real calls) and answers `{ status: 'OK' | 'Error', core_api, project_api, calendar_api }` with `Connected` or `Unreachable` for each (`CheckApisResponse` in the contract), 200 when all are reachable, 502 otherwise; an unconfigured service is `Unreachable`.
 
 ## Configuration
 
@@ -54,10 +54,10 @@ Values below are local examples or explicitly described behavior, not production
 | Variable or precedence | Example / stated fallback | Purpose |
 | --- | --- | --- |
 | `PORT` | 4007 | Port used by this local example. |
-| `USER_BFF_URL` | http://localhost:4000 | Identity source; required (startup fails without it). |
-| `PROJECT_BFF_URL` | http://localhost:4001 | Project and task source; required (startup fails without it). |
-| `CALENDAR_BFF_URL` | http://localhost:4002 | Event source; required (startup fails without it). |
-| `USER_BFF_PORT` / `PROJECT_BFF_PORT` / `CALENDAR_BFF_PORT` | — | Optional ports when absent from the URLs. |
+| `CORE_API_URL` | http://localhost:3000 | Identity source (first name, roles of an older token); required (startup fails without it). |
+| `PROJECT_API_URL` | http://localhost:3001 | Project and task source; required (startup fails without it). |
+| `CALENDAR_API_URL` | http://localhost:3002 | Event source; required (startup fails without it). |
+| `CORE_API_PORT` / `PROJECT_API_PORT` / `CALENDAR_API_PORT` | — | Optional ports when absent from the URLs. |
 | `TRUST_PROXY` | unset (no proxy trusted) | Express `trust proxy` (`true`, a hop count such as `1`, or comma-separated addresses/subnets): set it behind the ingress so `req.ip` is the client. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset (telemetry off) | OpenTelemetry collector of the instance, e.g. `http://otel-collector:4318`: traces and HTTP metrics are exported over OTLP (MAIR-504). Only the method, status, parameterised route and upstream host leave the BFF, never a URL, query string, header, id or IP. |
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | `bff-dashboard`; unset | Override the service name; extra resource attributes such as `service.version=<image tag>,deployment.environment.name=prod`. `OTEL_SDK_DISABLED=true` turns telemetry off. |
@@ -74,7 +74,7 @@ Inventory extracted from `contracts/openapi.json`. Replace brace parameters with
 
 ## Session, permissions and errors
 
-The only accepted credential is the `Authorization: Bearer <token>` header (read by `@mairie360/bffs-lib`); cookies and `x-session-token` are ignored. Without it, every `/dashboard/*` request is refused with 401 before any upstream call, and `/dashboard/*` answers carry `Cache-Control: no-store`. The token is forwarded, normalised to `Bearer <token>`, to all three BFFs. User-context failure blocks bootstrap. Initial Project and Calendar calls can degrade their respective sections; a 401 rejection from those calls or from a project detail is propagated. Only an upstream 401 is relayed (it is the only upstream status the contract declares); any other upstream status, a network failure or an unusable body becomes 502 (an unusable BFF User body: `The USER_BFF answer is invalid.`), and a missing or invalid upstream URL returns 503. Upstream bodies and messages are never relayed. Clients use a 10-second timeout.
+The only accepted credential is the `Authorization: Bearer <token>` header (read by `@mairie360/bffs-lib`); cookies and `x-session-token` are ignored. Without it, every `/dashboard/*` request is refused with 401 before any upstream call, and `/dashboard/*` answers carry `Cache-Control: no-store`. The token is forwarded, normalised to `Bearer <token>`, to the three APIs. A failed Core profile blocks bootstrap. Project and Calendar calls can degrade their respective sections; a 401 rejection from any call, a task list included, is propagated. Only an upstream 401 is relayed (it is the only upstream status the contract declares); any other upstream status, a network failure or an unusable body becomes 502 (an unusable Core profile: `The CORE_API answer is invalid.`), and a missing or invalid upstream URL returns 503. Upstream bodies and messages are never relayed. Clients use a 10-second timeout and retry an idempotent read once on a transient failure.
 
 Security headers come from the lib (`securityHeaders`, then `apiOnlyHeaders()`: `default-src 'none'` CSP, `nosniff`, `same-origin` CORP everywhere but `/docs`).
 
@@ -84,7 +84,7 @@ Every error answer, including unknown routes (404) and unparsable bodies (400), 
 { "error": { "code": "BAD_GATEWAY", "message": "Upstream service error", "details": [] } }
 ```
 
-The 30-day calendar window (`from`/`to` sent to BFF Calendar) starts on today's date in `Europe/Paris`, not in UTC.
+The 30-day calendar window (`start`/`end` sent to Calendar API, from 00:00:00 to 23:59:59 Paris time converted to UTC) starts on today's date in `Europe/Paris`, not in UTC.
 
 ## Synchronization and verification
 
@@ -110,11 +110,21 @@ The Dockerfile uses `node:24-alpine`, pinned by digest, for build and runtime (`
 
 `security_test.sh` and `performance_test.sh` test the image named by `IMAGE_REF`: in CI, the image `release-dev` has just published, the same artifact that is then promoted to staging and prod. When `IMAGE_REF` is empty (local use), they first build `bff-dashboard:local` from `development.Dockerfile`, which needs `NODE_AUTH_TOKEN` and `./.npmrc`.
 
-`security_test.sh` runs the OWASP ZAP stack of `docker-compose-security.yml`: ZAP replays every operation of `/openapi.json` with a static admin JWT (`sub=1`, HS256, `JWT_SECRET=b"secret"` in every service of the security and performance stacks); `init-test.sql` seeds users 1 (Admin) and 2 (User).
+`security_test.sh` runs the OWASP ZAP stack of `docker-compose-security.yml`: ZAP replays every operation of `/openapi.json` with an admin JWT (`sub=1`, HS256) signed by `stack_secrets.sh` with the random `JWT_SECRET` it generates for each run and shares with every service of the stack; `init-test.sql` seeds users 1 (Admin) and 2 (User).
 
-The ZAP stack carries the OpenAPI coverage hook of `mairie360/CICD` (`tests/zap/zap_hooks.py`), checked out as `cicd-repo/` by the CI jobs and cloned there by `security_test.sh` / `performance_test.sh` at the pinned `cicd_version` (`CICD_VERSION` overrides it). After the scan, it fails when an operation of the contract was never reached, or when an operation that requires `bearerAuth` only got 401/403. Public operations (`/health`, `/check_apis`) declare `security: []` in their `registerPath`; a new route is authenticated by default. `load-test.js` holds one handler per operation of `contracts/openapi.json` through the shared `tests/k6/coverage.js`: k6 aborts at init when one is missing and fails its `operations_uncovered` threshold when a handler sends no request, so **adding a route means adding its handler in `load-test.js`**. All three operations are reads, so a single `reads` scenario (ramp to 20 VUs) runs every handler and carries the gate. Every operation has a `p(95)` threshold by family: 50 ms for `/health`, 200 ms for `/check_apis`, 1000 ms for `/dashboard/bootstrap`; `http_req_failed` must stay below 1 %.
+The ZAP stack carries the OpenAPI coverage hook of `mairie360/CICD` (`tests/zap/zap_hooks.py`), checked out as `cicd-repo/` by the CI jobs and cloned there by `security_test.sh` / `performance_test.sh` at the pinned `cicd_version` (`CICD_VERSION` overrides it). After the scan, it fails when an operation of the contract was never reached, or when an operation that requires `bearerAuth` only got 401/403. Public operations (`/health`, `/check_apis`) declare `security: []` in their `registerPath`; a new route is authenticated by default. `load-test.js` holds one handler per operation of `contracts/openapi.json` through the shared `tests/k6/coverage.js`: k6 aborts at init when one is missing and fails its `operations_uncovered` threshold when a handler sends no request, so **adding a route means adding its handler in `load-test.js`**. All three operations are reads, so the `reads` scenario runs every handler as random agents of the Project_API volume seed (`init-perf-project.sql`, with `init-perf-calendar.sql`) and carries the gate; `bootstrap_rush` sends `GET /dashboard/bootstrap` at a fixed rate. Every operation has a `p(95)` threshold by family: 50 ms for `/health`, 200 ms for `/check_apis`, 1000 ms for `/dashboard/bootstrap`; every check must pass (the dashboard of the agent, with every source available), with no failed request and no dropped iteration. `K6_PROFILE` is `ci` (default) or `stress`.
 
 Before running Docker, check service variables, build secrets and networks in the repository files. Green CI validates its jobs; it does not prove business-service availability in a remote environment.
+
+## Logs
+
+Every log is one JSON object per line on stdout (MAIR-531, `@mairie360/bffs-lib` `createLogger`, `src/logger.ts`), the shape of the APIs' `LOG_FORMAT=json`: `timestamp`, `level`, `target` (`bff-dashboard`), `message`, then the fields.
+
+- One `request completed` line per request (`requestLogger`, first middleware of `src/app.ts`): `request_id`, `method`, `path` (the matched route, e.g. `/users/:userId`; never the query string), `status`, `duration_ms`. 5xx are written at `ERROR`; `/health` is not logged.
+- `request_id` comes from the `X-Request-Id` header when the caller sends a well-formed one, otherwise it is generated; it is answered in `X-Request-Id` and repeated on every line of the request (`request failed`, `upstream unreachable`...), so one search finds them all.
+- `request failed` (5xx) and `upstream unreachable` (`/check_apis`) carry `error` = `describeError(error)`: type, status, upstream method and path, masked message. Never a header, a token, a body or a personal value (MAIR-290).
+- `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`) filters the lines.
+- `LOG_FORMAT` (`json` or `text`): unset, the lines are coloured text when stdout is a terminal (`npm run start`), JSON otherwise (containers, tests). `NO_COLOR` / `FORCE_COLOR` control the colours (MAIR-555).
 
 ## Troubleshooting
 

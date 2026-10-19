@@ -4,6 +4,7 @@ import request from 'supertest';
 import path from 'node:path';
 import app from '../src/app';
 import { OpenApiContract } from './support/openapi-contract';
+import { captureLogs } from './support/logs';
 
 // Application-wide behaviour: JSON 404, body-parser errors, trust proxy and /check_apis.
 
@@ -78,7 +79,7 @@ describe('application fallbacks', () => {
 describe('GET /check_apis', () => {
   let healthy: http.Server;
   let healthyUrl: string;
-  const services = ['USER_BFF_URL', 'PROJECT_BFF_URL', 'CALENDAR_BFF_URL'] as const;
+  const services = ['CORE_API_URL', 'PROJECT_API_URL', 'CALENDAR_API_URL'] as const;
   const saved = Object.fromEntries(services.map((name) => [name, process.env[name]]));
 
   beforeAll(async () => {
@@ -98,10 +99,10 @@ describe('GET /check_apis', () => {
     expect(schema).toBeDefined();
     expect(contract.validate(schema!, response.body)).toEqual([]);
   };
-  let warnSpy: jest.SpyInstance;
-  beforeEach(() => { warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined); });
+  let logs: Record<string, unknown>[];
+  beforeEach(() => { logs = captureLogs(); });
   afterEach(() => {
-    warnSpy.mockRestore();
+    jest.restoreAllMocks();
     for (const name of services) {
       if (saved[name] === undefined) delete process.env[name];
       else process.env[name] = saved[name];
@@ -115,26 +116,26 @@ describe('GET /check_apis', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
-      status: 'OK', user_bff: 'Connected', project_bff: 'Connected', calendar_bff: 'Connected',
+      status: 'OK', core_api: 'Connected', project_api: 'Connected', calendar_api: 'Connected',
     });
     expectCheckApisContract(response);
   });
 
   test('answers 502 when a service is not configured or not healthy', async () => {
-    process.env.USER_BFF_URL = healthyUrl;
-    process.env.PROJECT_BFF_URL = `${healthyUrl}/down`;
-    delete process.env.CALENDAR_BFF_URL;
+    process.env.CORE_API_URL = healthyUrl;
+    process.env.PROJECT_API_URL = `${healthyUrl}/down`;
+    delete process.env.CALENDAR_API_URL;
 
     const response = await request(app).get('/check_apis');
 
     expect(response.status).toBe(502);
     expect(response.body).toEqual({
-      status: 'Error', user_bff: 'Connected', project_bff: 'Unreachable', calendar_bff: 'Unreachable',
+      status: 'Error', core_api: 'Connected', project_api: 'Unreachable', calendar_api: 'Unreachable',
     });
     expectCheckApisContract(response);
-    expect(warnSpy.mock.calls.map(([message]) => String(message))).toEqual([
-      expect.stringContaining('project_bff unreachable'),
-      expect.stringContaining('calendar_bff unreachable: HttpError 503 SERVICE_UNAVAILABLE: The CALENDAR_BFF service is not configured.'),
+    expect(logs.filter((line) => line.message === 'upstream unreachable')).toEqual([
+      expect.objectContaining({ level: 'WARN', target: 'bff-dashboard', upstream: 'project_api' }),
+      expect.objectContaining({ upstream: 'calendar_api', error: expect.stringMatching(/The CALENDAR_API service is not configured\./) }),
     ]);
   });
 
@@ -147,7 +148,7 @@ describe('GET /check_apis', () => {
 
     expect(response.status).toBe(502);
     expect(response.body).toEqual({
-      status: 'Error', user_bff: 'Unreachable', project_bff: 'Unreachable', calendar_bff: 'Unreachable',
+      status: 'Error', core_api: 'Unreachable', project_api: 'Unreachable', calendar_api: 'Unreachable',
     });
     expect(calls).toBe(0);
   });
