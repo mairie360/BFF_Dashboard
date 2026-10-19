@@ -355,6 +355,16 @@
               }
             }
           },
+          "429": {
+            "description": "Core API rate limit reached: retry after the Retry-After header (seconds)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "502": {
             "description": "User profile unavailable: Core API unreachable, failed or answered an invalid body",
             "content": {
