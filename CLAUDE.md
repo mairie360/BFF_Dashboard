@@ -38,6 +38,7 @@ Isolated perf/security stacks (need Docker + GHCR pull access for the upstream i
 ```bash
 ./performance_test.sh   # k6 load test  (docker-compose-performance.yml)
 ./security_test.sh      # OWASP ZAP DAST (docker-compose-security.yml)
+./integration_test.sh   # docker-compose-integration.yml: real Core / Project / Calendar APIs + newman replaying tests/postman/ (MAIR-262)
 ```
 
 Each stack brings up the **full real upstream chain** — postgres + liquibase + seeder
@@ -122,6 +123,40 @@ responses are validated against the current `contracts/openapi.json` **and** the
 `tests/support/openapi-contract.ts`, `contract-mock-server.ts` and `orval-contract.ts` are shared verbatim
 with `BFF_Calendar`; keep the copies identical.
 
+## Integration tests on the real stack (MAIR-262)
+
+Jest tests mock the three APIs; `integration_test.sh` is the only test of the BFF on a real stack. It brings up
+`docker-compose-integration.yml` (the upstream services of the ZAP / k6 stacks: published Core, Project and
+Calendar API images, database + liquibase + `init-test.sql`, Redis) and a `newman` service that replays
+`tests/postman/collection.json` with `tests/postman/environment.json` against the BFF, `--bail` on the first
+failing request; the exit code of newman is the exit code of the script. Like the other stacks it tests the
+image named by `IMAGE_REF` (`bff-dashboard:local` built from `development.Dockerfile` when empty), sources
+`stack_secrets.sh` (random `JWT_SECRET` per run) and drops the volumes before and after. In CI it is the
+`integration_tests` staging gate of `promote-staging.yml` (mairie360/CICD `integration/bffs`) on the
+published `dev-<sha>` image: a failure blocks the promotion; the junit report (`newman-reports/newman.xml`,
+gitignored) is published as job summary and artifact.
+
+The BFF is read-only and creates nothing, so the collection only holds **working checks**, on the BFF's own
+routes: folder `Service` (the BFF starts, `/health`, `/check_apis` with the three APIs `Connected`,
+`/openapi.json`, a JSON 404) and folder `Session resolution` (`GET /dashboard/bootstrap` answers 401 without a
+Bearer and for a token signed with another secret, the seeded Admin `sub=1` and agent `sub=2` get their own
+`userFirstName` with every `sources.*` `available`, a `totalProjects` number and the capped `projects` /
+`tasks` / `events` arrays in the contract's vocabulary, a valid token of an account Core does not know is
+refused with the relayed 401). `init-test.sql` seeds no project, task or event: the lists are checked for
+shape, not content; seed some there to assert content.
+
+The seeded accounts have no known password: the collection-level pre-request script forges their JWTs
+(HS256 `{ sub, role, exp }`, like `mairie360_api_lib`) with the `jwt_secret` the compose file injects
+(`jwt_admin`, `jwt_agent`); the committed `environment.json` holds no secret or token. Isolated endpoint checks
+(validation, token refusals of every shape, degraded sources) stay in jest: the collection only holds the checks
+that need the real APIs.
+
+`tests/integration-collection.test.ts` guards the collection with the unit tests: every operation of
+`contracts/openapi.json` has at least one request (a new route needs its request), every request has a
+`pm.test`, every request targets a declared route (or `/openapi.json` / the 404 check), and the environment
+commits no secret. The collection is generated for now from a session script; edit the JSON directly
+(Postman v2.1), keeping one folder per journey and English names.
+
 ## ZAP / k6 OpenAPI coverage gate
 
 `security_test.sh` / `performance_test.sh` clone `mairie360/CICD` into `cicd-repo/` (gitignored) at
@@ -176,5 +211,5 @@ Every PR requests a review from the whole team, minus its author: `CarolinHugo`,
 A push to `main` only releases dev (`cicd.yml` stops at `release-dev`). Staging and prod are manual:
 `gh workflow run promote-staging.yml -R mairie360/BFF_Dashboard` (main's newest commit) or `gh workflow run promote-staging.yml -R mairie360/BFF_Dashboard -f sha=SHA` (a given commit), then the same with `promote-prod.yml`
 (environments `Staging` / `Prod`). Staging refuses a commit without `dev-<sha>` and a green main run, and runs
-the ZAP and k6 stacks on that image; prod refuses one without `staging-<sha>` and tags the version semantic-release computes
+the integration (newman, MAIR-262), ZAP and k6 stacks on that image; prod refuses one without `staging-<sha>` and tags the version semantic-release computes
 for that commit. `cicd.yml`, `promote-staging.yml` and `promote-prod.yml` pin the same mairie360/CICD release.

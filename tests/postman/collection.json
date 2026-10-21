@@ -1,0 +1,420 @@
+{
+  "info": {
+    "name": "BFF Dashboard integration tests",
+    "description": "MAIR-262: working checks of the BFF Dashboard (the BFF starts, reaches Core, Project and Calendar API, resolves sessions and aggregates the bootstrap payload of the seeded accounts), replayed by newman on docker-compose-integration.yml (./integration_test.sh). The BFF is read-only: it creates nothing, so the collection holds no business journey. The seeded Admin (user 1) and agent (user 2) are impersonated with JWTs forged from the JWT_SECRET of the stack.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// One fresh account per run so the collection is replayable against a persistent database.",
+          "if (!pm.environment.get('run_id')) {",
+          "    pm.environment.set('run_id', String(Date.now()));",
+          "}",
+          "if (!pm.environment.get('test_user_email')) {",
+          "    pm.environment.set('test_user_email', `newman.${pm.environment.get('run_id')}@mairie360.test`);",
+          "}",
+          "// The seeded accounts have no known password: forge their JWT exactly like mairie360_api_lib::jwt_manager",
+          "// does (HS256, claims { sub, role, exp }), signed with the JWT_SECRET of the stack, injected by",
+          "// docker-compose-integration.yml (random per run, MAIR-428). `role` is the claim the BFFs read (MAIR-529).",
+          "const cryptoJs = require('crypto-js');",
+          "const b64url = (words) => cryptoJs.enc.Base64.stringify(words).replace(/=+$/, '').replace(/\\+/g, '-').replace(/\\//g, '_');",
+          "const signJwt = (sub, role) => {",
+          "    const header = b64url(cryptoJs.enc.Utf8.parse(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));",
+          "    const payload = b64url(cryptoJs.enc.Utf8.parse(JSON.stringify({ sub: String(sub), role, exp: Math.floor(Date.now() / 1000) + 3600 })));",
+          "    return `${header}.${payload}.${b64url(cryptoJs.HmacSHA256(`${header}.${payload}`, pm.environment.get('jwt_secret')))}`;",
+          "};",
+          "pm.environment.set('jwt_admin', signJwt(pm.environment.get('admin_user_id'), 'admin'));",
+          "pm.environment.set('jwt_agent', signJwt(pm.environment.get('agent_user_id'), 'user'));"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Service",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Body says ok\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql('ok');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "The three upstream APIs are reachable",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/check_apis",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "check_apis"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Core, Project and Calendar API are connected\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql('OK');",
+                  "    pm.expect(body.core_api).to.eql('Connected');",
+                  "    pm.expect(body.project_api).to.eql('Connected');",
+                  "    pm.expect(body.calendar_api).to.eql('Connected');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "OpenAPI document",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/openapi.json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "openapi.json"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Document lists the routes\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.openapi).to.be.a('string');",
+                  "    pm.expect(body.paths).to.have.property('/dashboard/bootstrap');",
+                  "    pm.expect(body.paths).to.have.property('/check_apis');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Unknown route answers a JSON 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/newman/unknown-route",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "newman",
+                "unknown-route"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test(\"Body is the error envelope\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.error, 'error').to.be.an('object');",
+                  "    pm.expect(body.error.code).to.be.a('string');",
+                  "    pm.expect(body.error.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ],
+      "description": "The BFF is up and reaches its three upstream APIs."
+    },
+    {
+      "name": "Session resolution",
+      "item": [
+        {
+          "name": "Bootstrap without a session is rejected",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "bootstrap"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test(\"Body is the error envelope\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.error, 'error').to.be.an('object');",
+                  "    pm.expect(body.error.code).to.be.a('string');",
+                  "    pm.expect(body.error.message).to.be.a('string');",
+                  "});",
+                  "pm.test(\"Answer is not cacheable\", function () {",
+                  "    pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Bootstrap with a token signed with another secret is rejected",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_wrong_secret}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "bootstrap"
+              ]
+            },
+            "description": "Well-formed token of the seeded agent signed with another secret: the BFF verifies the signature with the JWT_SECRET of this run (random, MAIR-428) before any upstream call."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Same forge as the collection pre-request (HS256 { sub, role, exp }), with the given subject and secret.",
+                  "const cryptoJs = require('crypto-js');",
+                  "const b64url = (words) => cryptoJs.enc.Base64.stringify(words).replace(/=+$/, '').replace(/\\+/g, '-').replace(/\\//g, '_');",
+                  "const forge = (sub, secret) => {",
+                  "    const header = b64url(cryptoJs.enc.Utf8.parse(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));",
+                  "    const payload = b64url(cryptoJs.enc.Utf8.parse(JSON.stringify({ sub, role: 'user', exp: Math.floor(Date.now() / 1000) + 3600 })));",
+                  "    return `${header}.${payload}.${b64url(cryptoJs.HmacSHA256(`${header}.${payload}`, secret))}`;",
+                  "};",
+                  "pm.environment.set('jwt_wrong_secret', forge(pm.environment.get('agent_user_id'), 'not-the-secret-of-this-stack'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test(\"Body is the error envelope\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.error, 'error').to.be.an('object');",
+                  "    pm.expect(body.error.code).to.be.a('string');",
+                  "    pm.expect(body.error.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Bootstrap of the seeded administrator",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_admin}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "bootstrap"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Answer is not cacheable\", function () {",
+                  "    pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store');",
+                  "});",
+                  "pm.test(\"Bootstrap is the dashboard of the Admin, every source available\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.userFirstName).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.projects).to.be.an('array').with.lengthOf.at.most(6);",
+                  "    pm.expect(body.tasks).to.be.an('array').with.lengthOf.at.most(8);",
+                  "    pm.expect(body.events).to.be.an('array').with.lengthOf.at.most(6);",
+                  "    pm.expect(body.sources).to.eql({ projects: 'available', tasks: 'available', calendar: 'available' });",
+                  "    pm.expect(body.metrics.totalProjects).to.be.a('number');",
+                  "    pm.expect(body.metrics.totalProjects).to.be.at.least(body.projects.length);",
+                  "    body.projects.forEach((project) => {",
+                  "        pm.expect(project.id).to.match(/^project-\\d+$/);",
+                  "        pm.expect(project.status).to.be.oneOf(['todo', 'in-progress', 'review', 'done']);",
+                  "        pm.expect(project.progress).to.be.within(0, 100);",
+                  "    });",
+                  "    body.tasks.forEach((task) => {",
+                  "        pm.expect(task.id).to.match(/^task-\\d+$/);",
+                  "        pm.expect(task.projectId).to.match(/^project-\\d+$/);",
+                  "        pm.expect(task.priority).to.be.oneOf(['high', 'medium', 'low']);",
+                  "        pm.expect(task.completed).to.eql(false);",
+                  "    });",
+                  "    body.events.forEach((event) => pm.expect(event.date).to.match(/^\\d{4}-\\d{2}-\\d{2}$/));",
+                  "    pm.expect(body.userFirstName, 'first name of the seeded Admin (liquibase keeps its own)').to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Bootstrap of the seeded agent",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_agent}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "bootstrap"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Answer is not cacheable\", function () {",
+                  "    pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store');",
+                  "});",
+                  "pm.test(\"Bootstrap is the dashboard of the agent, every source available\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.userFirstName).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.projects).to.be.an('array').with.lengthOf.at.most(6);",
+                  "    pm.expect(body.tasks).to.be.an('array').with.lengthOf.at.most(8);",
+                  "    pm.expect(body.events).to.be.an('array').with.lengthOf.at.most(6);",
+                  "    pm.expect(body.sources).to.eql({ projects: 'available', tasks: 'available', calendar: 'available' });",
+                  "    pm.expect(body.metrics.totalProjects).to.be.a('number');",
+                  "    pm.expect(body.metrics.totalProjects).to.be.at.least(body.projects.length);",
+                  "    body.projects.forEach((project) => {",
+                  "        pm.expect(project.id).to.match(/^project-\\d+$/);",
+                  "        pm.expect(project.status).to.be.oneOf(['todo', 'in-progress', 'review', 'done']);",
+                  "        pm.expect(project.progress).to.be.within(0, 100);",
+                  "    });",
+                  "    body.tasks.forEach((task) => {",
+                  "        pm.expect(task.id).to.match(/^task-\\d+$/);",
+                  "        pm.expect(task.projectId).to.match(/^project-\\d+$/);",
+                  "        pm.expect(task.priority).to.be.oneOf(['high', 'medium', 'low']);",
+                  "        pm.expect(task.completed).to.eql(false);",
+                  "    });",
+                  "    body.events.forEach((event) => pm.expect(event.date).to.match(/^\\d{4}-\\d{2}-\\d{2}$/));",
+                  "    pm.expect(body.userFirstName).to.eql('Perf');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ],
+      "description": "The session is the Bearer JWT, verified by the BFF and resolved against Core API; the bootstrap is aggregated from the three APIs within the session scope."
+    }
+  ]
+}
