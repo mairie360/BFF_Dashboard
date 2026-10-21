@@ -108,7 +108,7 @@ The `contracts.yml` job uses Node.js 24, `actions/checkout@v7` and `actions/setu
 
 The Dockerfile uses `node:24-alpine`, pinned by digest, for build and runtime (`development.Dockerfile` too); the image command is `["node", "dist/index.js"]`. GitHub Packages credentials are only mounted as build secrets (`npmrc`, `node_auth_token`) during `npm ci`. `development.Dockerfile` installs all dependencies and runs `npm run start`.
 
-`security_test.sh` and `performance_test.sh` test the image named by `IMAGE_REF`: in CI, the image `release-dev` has just published, the same artifact that is then promoted to staging and prod. When `IMAGE_REF` is empty (local use), they first build `bff-dashboard:local` from `development.Dockerfile`, which needs `NODE_AUTH_TOKEN` and `./.npmrc`.
+`security_test.sh` and `performance_test.sh` test the image named by `IMAGE_REF`: in CI, the `dev-<sha>` image `release-dev` published, run by `promote-staging.yml` before that same artifact is promoted to staging and prod (MAIR-494). When `IMAGE_REF` is empty (local use), they first build `bff-dashboard:local` from `development.Dockerfile`, which needs `NODE_AUTH_TOKEN` and `./.npmrc`.
 
 `security_test.sh` runs the OWASP ZAP stack of `docker-compose-security.yml`: ZAP replays every operation of `/openapi.json` with an admin JWT (`sub=1`, HS256) signed by `stack_secrets.sh` with the random `JWT_SECRET` it generates for each run and shares with every service of the stack; `init-test.sql` seeds users 1 (Admin) and 2 (User).
 
