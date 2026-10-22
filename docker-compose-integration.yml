@@ -133,8 +133,11 @@ services:
     depends_on:
       core-api:
         condition: service_started
+    # Bounded wait (90 tries, 3 min): an upstream that never answers fails `docker compose up` instead of
+    # blocking the gate until the job timeout.
     command: >
-      sh -c 'until curl -fsS http://core-api:3000/health >/dev/null; do
+      sh -c 'i=0; until curl -fsS http://core-api:3000/health >/dev/null; do
+      i=$$((i+1)); if [ $$i -ge 90 ]; then echo "core-api not ready after 3 min"; exit 1; fi;
       echo "waiting for core-api..."; sleep 2; done; echo "core-api ready"'
     networks:
       - backend
@@ -162,8 +165,11 @@ services:
     depends_on:
       project-api:
         condition: service_started
+    # Bounded wait (90 tries, 3 min): an upstream that never answers fails `docker compose up` instead of
+    # blocking the gate until the job timeout.
     command: >
-      sh -c 'until curl -fsS http://project-api:3001/health >/dev/null; do
+      sh -c 'i=0; until curl -fsS http://project-api:3001/health >/dev/null; do
+      i=$$((i+1)); if [ $$i -ge 90 ]; then echo "project-api not ready after 3 min"; exit 1; fi;
       echo "waiting for project-api..."; sleep 2; done; echo "project-api ready"'
     networks:
       - backend
@@ -193,8 +199,11 @@ services:
     depends_on:
       calendar-api:
         condition: service_started
+    # Bounded wait (90 tries, 3 min): an upstream that never answers fails `docker compose up` instead of
+    # blocking the gate until the job timeout.
     command: >
-      sh -c 'until curl -fsS http://calendar-api:3002/health >/dev/null; do
+      sh -c 'i=0; until curl -fsS http://calendar-api:3002/health >/dev/null; do
+      i=$$((i+1)); if [ $$i -ge 90 ]; then echo "calendar-api not ready after 3 min"; exit 1; fi;
       echo "waiting for calendar-api..."; sleep 2; done; echo "calendar-api ready"'
     networks:
       - backend
@@ -203,6 +212,9 @@ services:
     image: ${IMAGE_REF:-bff-dashboard:local}
     container_name: bff-dashboard-int-bff
     depends_on:
+      # The seed must be in before newman checks the dashboards.
+      seeder:
+        condition: service_completed_successfully
       core-api-ready:
         condition: service_completed_successfully
       project-api-ready:
