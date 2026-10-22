@@ -104,7 +104,7 @@ The type generator is pinned to `openapi-typescript@7.10.1` in `scripts/contract
 
 The `contracts.yml` job uses Node.js 24, `actions/checkout@v7` and `actions/setup-node@v7`. It runs on pushes, pull requests and manual dispatch; it installs with `npm ci`, checks contracts and runs the associated tests.
 
-`cicd.yml` calls `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v4.4.3`, with `cicd_version: v4.4.3`, `node_version: "24"` and `openapi_spec_path: contracts/openapi.json`. Reusable steps and GitHub environments determine actual checks, publications and deployments; releases are computed by semantic-release (`.releaserc.json`). A push to `main` stops after `release-dev`; staging and prod go through the manual `promote-staging.yml` / `promote-prod.yml` workflows (MAIR-494).
+`cicd.yml` calls `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v4.5.0`, with `cicd_version: v4.5.0`, `node_version: "24"` and `openapi_spec_path: contracts/openapi.json`. Reusable steps and GitHub environments determine actual checks, publications and deployments; releases are computed by semantic-release (`.releaserc.json`). A push to `main` stops after `release-dev`; staging and prod go through the manual `promote-staging.yml` / `promote-prod.yml` workflows (MAIR-494).
 
 The Dockerfile uses `node:24-alpine`, pinned by digest, for build and runtime (`development.Dockerfile` too); the image command is `["node", "dist/index.js"]`. GitHub Packages credentials are only mounted as build secrets (`npmrc`, `node_auth_token`) during `npm ci`. `development.Dockerfile` installs all dependencies and runs `npm run start`.
 
