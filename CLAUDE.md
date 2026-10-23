@@ -12,7 +12,7 @@ business mutations** — it only adapts upstream data and enforces session rules
 ## Commands
 
 ```bash
-npm ci                      # install (use Node.js 24 to match the contracts CI job)
+npm ci                      # install (use Node.js 24.22.1 to match the contracts CI job)
 npm run start               # dev server via ts-node (src/index.ts), default port 4007
 npm run build               # tsc -> dist/
 npm run lint                # eslint . --ext .ts   (lint:fix to autofix)
@@ -185,11 +185,11 @@ MAIR-474: both scripts source `stack_secrets.sh` (a random `JWT_SECRET` per run,
   legacy and ignored. `@typescript-eslint/no-explicit-any` and `no-await-in-loop` (MAIR-525) are **errors**.
 - Error messages, comments and logs are written in **English** (see `../../CLAUDE.md`); translate the French ones you touch.
 - **Docs are bilingual:** any change to `docs/en/*.md` must be mirrored in `docs/fr/*.md`.
-- CI: `contracts.yml` (Node 24: `contracts:check` + tests) and `cicd.yml` (shared
-  `mairie360/CICD/.github/workflows/BFFs-cicd.yml`, `node_version: "24"` — lint / audits / build / test / release
+- CI: `contracts.yml` (Node 24.22.1: `contracts:check` + tests) and `cicd.yml` (shared
+  `mairie360/CICD/.github/workflows/BFFs-cicd.yml`, `node_version: "24.22.1"` — lint / audits / build / test / release
   dev), then `promote-staging.yml` (ZAP / k6 through `./security_test.sh` / `./performance_test.sh` at repo root,
   then staging) and `promote-prod.yml`, manual (MAIR-494). Keep the `@vX.Y.Z` ref and `cicd_version:` input in sync.
-- Dockerfiles use `node:24-alpine` pinned by digest (both `Dockerfile` stages and `development.Dockerfile`); npm credentials only enter through BuildKit secrets
+- Dockerfiles use `node:24.22.1-alpine` pinned by digest (both `Dockerfile` stages and `development.Dockerfile`); npm credentials only enter through BuildKit secrets
   (`npmrc`, `node_auth_token`). Locally, the test scripts build `development.Dockerfile` when `IMAGE_REF` is empty.
 - `.npmrc` points `@mairie360:*` at GitHub Packages and needs `NODE_AUTH_TOKEN`: the
   `@mairie360/*-openapi` devDependencies (bundled by esbuild) are private.
