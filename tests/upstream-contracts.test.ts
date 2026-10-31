@@ -1,35 +1,37 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { JsonSchema, OpenApiContract } from './support/openapi-contract';
-import type { ProjectListItem } from '@mairie360/bff-project-openapi/model';
 import { loadOrvalContract, resolveOrvalPackage } from './support/orval-contract';
 import {
-  calendarBffUrls, calendarBootstrapResponse, calendarEvent, projectBffUrls, projectDetailsResponse, projectListItem,
-  projectsPageResponse, sessionResponse, taskItem, userBffUrls,
+  calendarApiUrls, calendarResult, coreApiUrls, coreMe, eventView, projectApiUrls, projectListItem, projectsResult, taskListItem,
+  taskListResult,
 } from './support/upstream-fixtures';
 
-// Les contrats des BFF amont (et le dernier contrat publié du dashboard) sont reconstruits depuis les
-// paquets @mairie360/bff-*-openapi installés : monter la version dans package.json suffit à tester le
-// dashboard contre le nouveau contrat.
+// The API contracts (and the last published dashboard contract) are rebuilt from the installed @mairie360/*-openapi
+// packages: bumping the version in package.json is enough to test the dashboard against the new contract.
 
 const PACKAGES = [
-  '@mairie360/bff-user-openapi',
-  '@mairie360/bff-project-openapi',
-  '@mairie360/bff-calendar-openapi',
+  '@mairie360/core-api-openapi',
+  '@mairie360/project-api-openapi',
+  '@mairie360/calendar-api-openapi',
   '@mairie360/bff-dashboard-openapi',
 ] as const;
 
-const user = loadOrvalContract('@mairie360/bff-user-openapi');
-const project = loadOrvalContract('@mairie360/bff-project-openapi');
-const calendar = loadOrvalContract('@mairie360/bff-calendar-openapi');
+const core = loadOrvalContract('@mairie360/core-api-openapi');
+const project = loadOrvalContract('@mairie360/project-api-openapi');
+const calendar = loadOrvalContract('@mairie360/calendar-api-openapi');
+const packageJson = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')) as Record<string, Record<string, string>>;
 
-// Opérations amont réellement consommées par /dashboard/bootstrap (src/routes/dashboard.ts), adressées par les
-// helpers d'URL des clients générés.
+// API operations actually consumed by /dashboard/bootstrap and /check_apis, addressed through the URL helpers of the
+// generated clients.
 const CONSUMED = [
-  { contract: user, operationId: 'getMe', method: 'get', url: userBffUrls.getGetMeUrl() },
-  { contract: project, operationId: 'getProjectsPage', method: 'get', url: projectBffUrls.getGetProjectsPageUrl({ page: 1, limit: 6 }) },
-  { contract: project, operationId: 'getProjectsProjectId', method: 'get', url: projectBffUrls.getGetProjectsProjectIdUrl('project-1') },
-  { contract: calendar, operationId: 'getCalendarBootstrap', method: 'get', url: calendarBffUrls.getGetCalendarBootstrapUrl() },
+  { contract: core, operationId: 'getMe', method: 'get', url: coreApiUrls.getGetMeUrl() },
+  { contract: core, operationId: 'health', method: 'get', url: coreApiUrls.getHealthUrl() },
+  { contract: project, operationId: 'getProjects', method: 'get', url: projectApiUrls.getGetProjectsUrl({ limit: 6 }) },
+  { contract: project, operationId: 'getTasks', method: 'get', url: projectApiUrls.getGetTasksUrl({ limit: 8, assigned_to: 2 }) },
+  { contract: project, operationId: 'health', method: 'get', url: projectApiUrls.getHealthUrl() },
+  { contract: calendar, operationId: 'getCalendar', method: 'get', url: calendarApiUrls.getGetCalendarUrl({ start: '2026-09-01T00:00:00Z', end: '2026-09-30T00:00:00Z' }) },
+  { contract: calendar, operationId: 'health', method: 'get', url: calendarApiUrls.getHealthUrl() },
 ] as const;
 
 function responseSchema(contract: OpenApiContract, method: string, url: string, status: number): JsonSchema {
@@ -42,8 +44,7 @@ function responseSchema(contract: OpenApiContract, method: string, url: string, 
 
 describe('upstream contracts from the installed @mairie360 OpenAPI packages', () => {
   test.each(PACKAGES)('%s is the version pinned in package.json', (name) => {
-    const { devDependencies } = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')) as { devDependencies: Record<string, string> };
-    expect(resolveOrvalPackage(name).version).toBe(devDependencies[name]);
+    expect(resolveOrvalPackage(name).version).toBe(packageJson.devDependencies[name]);
   });
 
   test.each(CONSUMED)('$contract.title routes $method $url to $operationId', ({ contract, operationId, method, url }) => {
@@ -56,52 +57,40 @@ describe('upstream contracts from the installed @mairie360 OpenAPI packages', ()
     const published = loadOrvalContract('@mairie360/bff-dashboard-openapi');
     expect(published.match('GET', '/dashboard/bootstrap')?.operation).toMatchObject({ operationId: 'getDashboardBootstrap' });
   });
+
+  test('MAIR-525: the dashboard depends on no other BFF contract (its own published one aside)', () => {
+    const all = { ...packageJson.dependencies, ...packageJson.devDependencies };
+    expect(Object.keys(all).filter((name) => name.startsWith('@mairie360/bff-') && name !== '@mairie360/bff-dashboard-openapi')).toEqual([]);
+  });
 });
 
 describe('upstream fixtures conform to the upstream contracts', () => {
-  const task = taskItem();
-  const item = projectListItem();
   test.each([
-    ['BFF User getMe 200', user, userBffUrls.getGetMeUrl(), sessionResponse()],
-    ['BFF Project getProjectsPage 200', project, projectBffUrls.getGetProjectsPageUrl(), projectsPageResponse([item], 12)],
-    ['BFF Project getProjectsProjectId 200', project, projectBffUrls.getGetProjectsProjectIdUrl(item.id), projectDetailsResponse(item, [task, taskItem({ id: 'task-2', completed: true })])],
-    ['BFF Calendar getCalendarBootstrap 200', calendar, calendarBffUrls.getGetCalendarBootstrapUrl(), calendarBootstrapResponse([calendarEvent(), calendarEvent({ id: 'evt-2' })])],
+    ['Core getMe 200', core, coreApiUrls.getGetMeUrl(), coreMe()],
+    ['Project getProjects 200', project, projectApiUrls.getGetProjectsUrl(), projectsResult([projectListItem(1, { tasks_total: 3, tasks_completed: 1 })], 12)],
+    ['Project getTasks 200', project, projectApiUrls.getGetTasksUrl(), taskListResult([taskListItem(1), taskListItem(2, { project_id: 3, assigned_to: 2 })], 14)],
+    ['Calendar getCalendar 200', calendar, calendarApiUrls.getGetCalendarUrl({ start: '', end: '' }), calendarResult([eventView(1), eventView(2, { location: 'Mairie' })])],
   ] as const)('%s', (_name, contract, url, body) => {
-    expect(contract.validate(responseSchema(contract, 'get', url, 200), body)).toEqual([]);
+    expect(contract.validate(responseSchema(contract, 'get', url, 200), JSON.parse(JSON.stringify(body)))).toEqual([]);
   });
 });
 
 describe('contract validator', () => {
   test('reports missing required properties, wrong enums and wrong types', () => {
-    const schema = responseSchema(project, 'get', projectBffUrls.getGetProjectsProjectIdUrl('project-1'), 200);
-    const invalid = structuredClone(projectDetailsResponse({ ...projectListItem({ progress: 150 }), status: 'archived' as ProjectListItem['status'] }, [taskItem()])) as {
-      project: Record<string, unknown>; taskItems: Array<Record<string, unknown>>;
-    };
-    delete invalid.project.dueDate;
-    invalid.taskItems[0].completed = 'no';
+    const schema = responseSchema(project, 'get', projectApiUrls.getGetTasksUrl(), 200);
+    const invalid = { tasks: [{ ...taskListItem(1), status: 'Done', due_date: 20261001 }], total: 1 } as { tasks: Array<Record<string, unknown>>; total: number };
+    delete invalid.tasks[0].title;
     expect(project.validate(schema, invalid)).toEqual(expect.arrayContaining([
-      expect.stringContaining('$.project.dueDate: propriété requise manquante'),
-      expect.stringContaining('$.project.status: valeur "archived" hors enum'),
-      expect.stringContaining('$.project.progress: 150 > maximum 100'),
-      expect.stringContaining('$.taskItems[0].completed: type boolean attendu'),
+      expect.stringContaining('$.tasks[0].title: propriété requise manquante'),
+      expect.stringContaining('$.tasks[0].status: valeur "Done" hors enum'),
+      expect.stringContaining('$.tasks[0].due_date: type string|null attendu'),
     ]));
   });
 
-  test('resolves $ref, unions and JSDoc patterns', () => {
-    const schema = responseSchema(calendar, 'get', calendarBffUrls.getGetCalendarBootstrapUrl(), 200);
-    const errors = calendar.validate(schema, calendarBootstrapResponse([{ ...calendarEvent(), id: true as unknown as number, startTime: '9h' }]));
-    expect(errors).toEqual(expect.arrayContaining([
-      expect.stringContaining('$.events[0].id: type string|number attendu'),
-      expect.stringContaining('$.events[0].startTime: "9h" ne respecte pas'),
-    ]));
-  });
-
-  test('matches literal paths before templated ones and validates parameters', () => {
-    expect(project.match('GET', projectBffUrls.getGetProjectsPageUrl())?.template).toBe('/projects-page');
-    expect(project.match('GET', projectBffUrls.getGetProjectsProjectIdUrl(encodeURIComponent('a/b')))).toMatchObject({ template: '/projects/{projectId}', pathParams: { projectId: 'a/b' } });
-    expect(project.validateRequest('GET', new URL('http://bff/projects-page?page=x')).errors)
-      .toEqual([expect.stringContaining('query.page: type number|null attendu')]);
-    expect(project.validateRequest('DELETE', new URL(projectBffUrls.getGetProjectsPageUrl(), 'http://bff')).errors)
-      .toEqual([expect.stringContaining(`n'existe pas dans le contrat ${project.title}`)]);
+  test('validates path parameters and refuses operations absent from the contract', () => {
+    expect(project.validateRequest('GET', new URL('http://api/api/v1/projects/abc/tasks/')).errors)
+      .toEqual([expect.stringContaining('path.projectId: type number attendu')]);
+    expect(calendar.validateRequest('DELETE', new URL('http://api/api/v1/calendar')).errors)
+      .toEqual([expect.stringContaining(`n'existe pas dans le contrat ${calendar.title}`)]);
   });
 });

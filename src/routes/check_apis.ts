@@ -1,14 +1,15 @@
 import { checkApis, checkApisResponseSchema, withoutSession } from '@mairie360/bffs-lib';
 import { Router } from 'express';
+import { logger } from '../logger';
 import { registry } from '../openapi-registry';
-import { calendarBff, projectBff, userBff } from '../clients/upstreams';
+import { calendarApi, coreApi, projectApi } from '../clients/upstreams';
 
 const router = Router();
 
 // clone(): the lib builds the schema before extendZodWithOpenApi() ran on its zod instance (see openapi-registry.ts).
 export const CheckApisResponseSchema = registry.register(
   'CheckApisResponse',
-  checkApisResponseSchema(['user_bff', 'project_bff', 'calendar_bff']).clone(),
+  checkApisResponseSchema(['core_api', 'project_api', 'calendar_api']).clone(),
 );
 const checkApisContent = { 'application/json': { schema: CheckApisResponseSchema } };
 registry.registerPath({
@@ -16,18 +17,18 @@ registry.registerPath({
   path: '/check_apis',
   security: [],
   tags: ['Connectivity'],
-  summary: 'Checks that the three upstream BFFs are reachable',
+  summary: 'Checks that the three upstream APIs are reachable',
   responses: {
-    200: { description: 'Every upstream BFF answered its /health operation', content: checkApisContent },
-    502: { description: 'At least one upstream BFF is unreachable or not configured', content: checkApisContent },
+    200: { description: 'Every upstream API answered its /health operation', content: checkApisContent },
+    502: { description: 'At least one upstream API is unreachable or not configured', content: checkApisContent },
   },
 });
 
-// The three BFFs the dashboard depends on, probed through the /health operation of their contract with
+// The three APIs the dashboard depends on, probed through the /health operation of their contract with
 // the same <SERVICE>_URL variables as the real calls.
 router.get('/', checkApis({
-  user_bff: () => userBff.getHealth(withoutSession('USER_BFF', 5_000)),
-  project_bff: () => projectBff.getHealth(withoutSession('PROJECT_BFF', 5_000)),
-  calendar_bff: () => calendarBff.getHealth(withoutSession('CALENDAR_BFF', 5_000)),
-}));
+  core_api: () => coreApi.health(withoutSession('CORE_API', 5_000)),
+  project_api: () => projectApi.health(withoutSession('PROJECT_API', 5_000)),
+  calendar_api: () => calendarApi.health(withoutSession('CALENDAR_API', 5_000)),
+}, { logger }));
 export default router;
