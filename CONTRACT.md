@@ -9,7 +9,7 @@ Les chemins sont relatifs au BFF. Les proxies web conservent méthode, paramètr
 | Méthode | Route | Réponse / schéma |
 | --- | --- | --- |
 | GET | `/health` | 200 OK |
-| GET | `/check_apis` | 200 / 502 `CheckApisResponse` (`user_bff`, `project_bff`, `calendar_bff`) |
+| GET | `/check_apis` | 200 / 502 `CheckApisResponse` (`core_api`, `project_api`, `calendar_api`) |
 | GET | `/dashboard/bootstrap` | 200 DashboardBootstrap |
 
 ## Mise à jour et validation
@@ -20,4 +20,4 @@ Le générateur de types est fixé à `openapi-typescript@7.10.1`. Il est exécu
 
 ## Sources
 
-Configurer `USER_BFF_URL`, `PROJECT_BFF_URL` et `CALENDAR_BFF_URL`. Les projets, tâches et événements gardent les identifiants des BFF métier et leurs permissions. L’aperçu affiche jusqu’à six projets, leurs tâches en attente et six événements sur les 30 prochains jours. Les sources indisponibles sont signalées ; les statistiques non disponibles (citoyens, performance, etc.) ne sont pas inventées. Les destinations front peuvent être configurées avec `NEXT_PUBLIC_PROJECT_FRONT_URL` et `NEXT_PUBLIC_CALENDAR_FRONT_URL`.
+Configurer `CORE_API_URL`, `PROJECT_API_URL` et `CALENDAR_API_URL` : le dashboard lit les API, jamais un autre BFF (MAIR-525). Les projets, tâches et événements gardent les identifiants publics des BFF métier (`project-<id>`, `task-<id>`, id numérique d’événement) et leurs règles de visibilité. L’aperçu affiche jusqu’à six projets, leurs tâches en attente et six événements sur les 30 prochains jours. Les sources indisponibles sont signalées ; les statistiques non disponibles (citoyens, performance, etc.) ne sont pas inventées. Les destinations front peuvent être configurées avec `NEXT_PUBLIC_PROJECT_FRONT_URL` et `NEXT_PUBLIC_CALENDAR_FRONT_URL`.

@@ -83,21 +83,21 @@
               "Error"
             ]
           },
-          "user_bff": {
+          "core_api": {
             "type": "string",
             "enum": [
               "Connected",
               "Unreachable"
             ]
           },
-          "project_bff": {
+          "project_api": {
             "type": "string",
             "enum": [
               "Connected",
               "Unreachable"
             ]
           },
-          "calendar_bff": {
+          "calendar_api": {
             "type": "string",
             "enum": [
               "Connected",
@@ -107,9 +107,9 @@
         },
         "required": [
           "status",
-          "user_bff",
-          "project_bff",
-          "calendar_bff"
+          "core_api",
+          "project_api",
+          "calendar_api"
         ]
       },
       "DashboardBootstrap": {
@@ -307,10 +307,10 @@
         "tags": [
           "Connectivity"
         ],
-        "summary": "Checks that the three upstream BFFs are reachable",
+        "summary": "Checks that the three upstream APIs are reachable",
         "responses": {
           "200": {
-            "description": "Every upstream BFF answered its /health operation",
+            "description": "Every upstream API answered its /health operation",
             "content": {
               "application/json": {
                 "schema": {
@@ -320,7 +320,7 @@
             }
           },
           "502": {
-            "description": "At least one upstream BFF is unreachable or not configured",
+            "description": "At least one upstream API is unreachable or not configured",
             "content": {
               "application/json": {
                 "schema": {
@@ -336,7 +336,7 @@
       "get": {
         "responses": {
           "200": {
-            "description": "Data from the same BFFs as the business pages, within the session scope",
+            "description": "Data read from Core API, Project API and Calendar API in one parallel wave, within the session scope",
             "content": {
               "application/json": {
                 "schema": {
@@ -346,7 +346,17 @@
             }
           },
           "401": {
-            "description": "Missing or invalid session, or session refused by an upstream BFF",
+            "description": "Missing or invalid session, or session refused by an upstream API",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Core API rate limit reached: retry after the Retry-After header (seconds)",
             "content": {
               "application/json": {
                 "schema": {
@@ -356,7 +366,7 @@
             }
           },
           "502": {
-            "description": "User context unavailable: BFF User unreachable, failed or answered an invalid body",
+            "description": "User profile unavailable: Core API unreachable, failed or answered an invalid body",
             "content": {
               "application/json": {
                 "schema": {
@@ -366,7 +376,7 @@
             }
           },
           "503": {
-            "description": "An upstream BFF is not configured",
+            "description": "An upstream API is not configured",
             "content": {
               "application/json": {
                 "schema": {

@@ -5,14 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `bff-dashboard` is a Backend-for-Frontend for the Mairie360 Dashboard screens (web service:
-`mairie360/Dashboard_Web_Service`). It aggregates read-only data from three other BFFs (User,
-Project, Calendar) into one `/dashboard/bootstrap` payload. It has **no database and performs no
+`mairie360/Dashboard_Web_Service`). It aggregates read-only data from three APIs (Core,
+Project, Calendar) into one `/dashboard/bootstrap` payload. It **never calls another BFF** (MAIR-525). It has **no database and performs no
 business mutations** — it only adapts upstream data and enforces session rules.
 
 ## Commands
 
 ```bash
-npm ci                      # install (use Node.js 24 to match the contracts CI job)
+npm ci                      # install (use Node.js 24.22.1 to match the contracts CI job)
 npm run start               # dev server via ts-node (src/index.ts), default port 4007
 npm run build               # tsc -> dist/
 npm run lint                # eslint . --ext .ts   (lint:fix to autofix)
@@ -38,12 +38,12 @@ Isolated perf/security stacks (need Docker + GHCR pull access for the upstream i
 ```bash
 ./performance_test.sh   # k6 load test  (docker-compose-performance.yml)
 ./security_test.sh      # OWASP ZAP DAST (docker-compose-security.yml)
+./integration_test.sh   # docker-compose-integration.yml: real Core / Project / Calendar APIs + newman replaying tests/postman/ (MAIR-262)
 ```
 
 Each stack brings up the **full real upstream chain** — postgres + liquibase + seeder
-(`init-test.sql`, user id 2) + redis + core/project/calendar APIs + bff-user/bff-project/bff-calendar
-+ this BFF — then runs k6 (`load-test.js`) or ZAP against `/dashboard/bootstrap`. Test JWTs are
-HS256 signed with `JWT_SECRET=secret`, `sub=2`. The BFF under test is never built by the compose files:
+(`init-test.sql`, user id 2) + redis + core/project/calendar APIs + this BFF (no other BFF since MAIR-525) — then runs k6 (`load-test.js`) or ZAP against `/dashboard/bootstrap`. Test JWTs are
+HS256 signed with the random `JWT_SECRET` that `stack_secrets.sh` generates for each run (ZAP: `ADMIN_JWT`, `sub=1`; k6: random seeded agents). The BFF under test is never built by the compose files:
 they run `IMAGE_REF` (CI passes the image `release-dev` just pushed); with `IMAGE_REF` empty the scripts
 build `bff-dashboard:local` from `development.Dockerfile` first.
 
@@ -51,23 +51,25 @@ build `bff-dashboard:local` from `development.Dockerfile` first.
 
 **Request entry:** `src/index.ts` (`import 'dotenv/config'` first, then `start()`: `assertConfigured(UPSTREAM_SERVICES)` fails fast on a missing/invalid `*_URL`, under `require.main === module`) → `src/app.ts`. `app.ts` mounts the lib's `securityHeaders` + `apiOnlyHeaders()` (strict CSP everywhere but `/docs`), `trust proxy` (`TRUST_PROXY`), the JSON body parser (no multipart parser: nothing reads a raw body),
 Swagger UI at `/docs`, the spec at `/openapi.json` and `/swagger.json`, and the three routers
-(`health`, `check_apis`, `dashboard`). `/dashboard/*` responses get `Cache-Control: no-store` (lib `noStore`) and require a Bearer token (lib `requireBearer`).
+(`health`, `check_apis`, `dashboard`). `/dashboard/*` responses get `Cache-Control: no-store` (lib `noStore`) and require a session token (lib `requireSession`).
 
 **Upstream calls:** all outbound requests go through `src/clients/upstreams.ts`.
-- lib `baseUrl(service)` resolves `process.env[`${service}_URL`]` (e.g. `USER_BFF_URL`) on every call,
+- lib `baseUrl(service)` resolves `process.env[`${service}_URL`]` (e.g. `CORE_API_URL`) on every call,
   optionally appending `${service}_PORT`. Missing/invalid config → `HttpError(503)`; no `localhost` default.
-- The session is the `Authorization: Bearer <token>` header only (lib `authorization` / `requireBearer`;
-  cookies and `x-session-token` are ignored). `app.ts` mounts `noStore, requireBearer` on `/dashboard`, so a
-  request without one gets a 401 before any upstream call; the token is forwarded, normalised to
-  `Bearer <token>`, to every upstream BFF. `trust proxy` comes from `TRUST_PROXY` (lib `parseTrustProxy`).
-- `src/clients/upstreams.ts` only wraps the generated `@mairie360/bff-*-openapi` clients (axios, `Accept`
-  header). Each call in `src/routes/dashboard.ts` uses the lib: `asCaller('<SERVICE>', req)` for the options
-  (URL, Bearer, 10s timeout) and `callUpstream('<SERVICE>', call, { declared: [401] })`, the call parsing the
-  body it needs with zod. Only an upstream 401 is relayed; any other status or no answer → 502 (lib
-  messages), a body that does not parse (non-JSON included) → 502 `The <SERVICE> answer is invalid.`
-  Upstream bodies are never relayed. No retry: the upstreams are BFFs, which retry their own APIs.
-- `/check_apis` is the lib's `checkApis` with one `getHealth(withoutSession('<SERVICE>', 5_000))` probe per
-  upstream BFF (keys `user_bff`, `project_bff`, `calendar_bff`), declared as `CheckApisResponse` for 200 and 502.
+- The session is the `Authorization: Bearer <token>` header only (lib `authorization` / `requireSession`;
+  cookies and `x-session-token` are ignored). `app.ts` mounts `noStore, requireSession` on `/dashboard`, so a
+  request without a token signed with `JWT_SECRET` (HS256, numeric `sub`, not expired) gets a 401 before any
+  upstream call (`start()` refuses to run without `JWT_SECRET`; `tests/token-refusals.test.ts` sweeps forged
+  tokens over every secured operation of the contract, with a genuine-token control); the token is forwarded, normalised to
+  `Bearer <token>`, to every upstream API. `trust proxy` comes from `TRUST_PROXY` (lib `parseTrustProxy`).
+- `src/clients/upstreams.ts` only wraps the generated `@mairie360/{core,project,calendar}-api-openapi` clients
+  (axios, `Accept` header). Each call in `src/routes/dashboard.ts` uses the lib: `asCaller('<SERVICE>', req)` for
+  the options (URL, Bearer, 10s timeout) and `callUpstream('<SERVICE>', call, { declared: [401], retry: true })`,
+  the call parsing the body it needs with zod. Only an upstream 401 is relayed; any other status or no answer →
+  502 (lib messages), a body that does not parse (non-JSON included) → 502 `The <SERVICE> answer is invalid.`
+  Upstream bodies are never relayed. Idempotent reads are retried once on a transient failure.
+- `/check_apis` is the lib's `checkApis` with one `health(withoutSession('<SERVICE>', 5_000))` probe per
+  upstream API (keys `core_api`, `project_api`, `calendar_api`), declared as `CheckApisResponse` for 200 and 502.
 
 **Errors — `@mairie360/bffs-lib`:** every error is `{ error: { code, message, details } }`, registered
 once as `ErrorResponse` (`src/openapi-registry.ts`, `ErrorResponseSchema.clone()`: the clone is needed
@@ -81,18 +83,36 @@ a generic 500. Changing the envelope is a breaking change for the fronts.
 the document. Consequence: a new route only appears in the spec if its module is imported by
 `src/openapi.ts` / `src/app.ts`.
 
-**`/dashboard/bootstrap` flow (`src/routes/dashboard.ts`):** validate Bearer → `USER_BFF /me` for
-identity (failure blocks the whole response) → in parallel `PROJECT_BFF /projects-page?page=1&limit=6`
-and `CALENDAR_BFF /calendar/bootstrap?from=&to=` (next 30 days of the `Europe/Paris` calendar, `parisDateWindow(30)`) → per-project `PROJECT_BFF
-/projects/{id}` for unfinished tasks. A 401 from any upstream propagates; any other upstream failure
-degrades that section to `sources.<x> = "unavailable"` and `metrics.totalProjects = null` rather
-than inventing data. Output is capped at 6 projects / 8 tasks / 6 events.
+**`/dashboard/bootstrap` flow (`src/routes/dashboard.ts`, MAIR-525, MAIR-557):** validate Bearer → **one parallel
+wave**: Core `GET /api/v1/user/me/` (first name; failure blocks the whole response), Project `GET /api/v1/projects/?limit=6`,
+Project `GET /api/v1/tasks/?limit=8` (the first active tasks across every visible project, soonest due first, with
+`assigned_to=<caller>` unless the caller manages tasks; a token without the `role` claim waits for Core's profile
+before this call), and Calendar `GET /api/v1/calendar?start=&end=` (next 30 days of the `Europe/Paris`
+calendar, `parisDateWindow(30)` converted with the lib's `wallClockToUtc`; event times shown with `utcToWallClock`).
+MAIR-563: tasks are sorted by due date (none last) before the cap; Calendar API lists a recurring event once with
+the start of its series, so `src/occurrences.ts` (`nextOccurrence`) shows its next repetition (same rule as the
+calendar front: daily / weekly from the Monday of the first week on `days_of_week` / monthly on the same day,
+`interval`, `ends_on` inclusive) and leaves out every occurrence already over (end before now), one-off events too.
+The mappings copy BFF_Project's vocabulary (statuses, priorities, `project-<id>` / `task-<id>`) and visibility:
+Admin/Maire/Responsable see every active task, other roles only those assigned to them; the roles come from
+the token (`sessionRole`, MAIR-529) or Core's profile for a token without it. A 401 from any upstream propagates;
+any other upstream failure degrades that section to `sources.<x> = "unavailable"` and
+`metrics.totalProjects = null` rather than inventing data; an unusable event is skipped. Output is capped at 6
+projects / 8 tasks / 6 events. The upstream-mock tests check the single wave (arrival times) and a constant number
+of calls (4) for 1, 6 and 100 visible projects.
+
+### Telemetry (MAIR-504)
+
+`src/telemetry.ts` calls the lib's `startTelemetry` and is imported by `src/index.ts` right after `dotenv/config`,
+before the app: the Express instrumentation only hooks Express if it is not loaded yet (Express stays external in
+the esbuild bundle). Off without `OTEL_EXPORTER_OTLP_ENDPOINT`; the lib exports only an attribute allowlist, so
+never add span attributes holding request values (ids, URLs, bodies, headers). Tests export nothing.
 
 ## Tests with contract-driven upstream mocks
 
-`tests/dashboard.upstream-mocks.test.ts` serves BFF User / Project / Calendar from real local HTTP
+`tests/dashboard.upstream-mocks.test.ts` serves Core / Project / Calendar API from real local HTTP
 servers (`tests/support/contract-mock-server.ts`). Their contracts are rebuilt at test time from the
-**installed** `@mairie360/bff-user-openapi`, `bff-project-openapi`, `bff-calendar-openapi` devDependencies
+**installed** `@mairie360/core-api-openapi`, `project-api-openapi`, `calendar-api-openapi` devDependencies
 (`tests/support/orval-contract.ts` parses the orval `endpoints/*.ts` + `model/*.ts` with the TypeScript
 compiler API; the packages ship no `openapi.json`). Keep their versions aligned with the upstream images of
 the perf/security stacks and bump them to test against a new upstream contract. Each mock rejects paths,
@@ -103,6 +123,49 @@ responses are validated against the current `contracts/openapi.json` **and** the
 `tests/support/openapi-contract.ts`, `contract-mock-server.ts` and `orval-contract.ts` are shared verbatim
 with `BFF_Calendar`; keep the copies identical.
 
+## Integration tests on the real stack (MAIR-262)
+
+Jest tests mock the three APIs; `integration_test.sh` is the only test of the BFF on a real stack. It brings up
+`docker-compose-integration.yml` (the upstream services of the ZAP / k6 stacks: published Core, Project and
+Calendar API images, database + liquibase + `init-test.sql`, Redis) and a `newman` service that replays
+`tests/postman/collection.json` with `tests/postman/environment.json` against the BFF, `--bail` on the first
+failing request; the exit code of newman is the exit code of the script. Like the other stacks it tests the
+image named by `IMAGE_REF` (`bff-dashboard:local` built from `development.Dockerfile` when empty), sources
+`stack_secrets.sh` (random `JWT_SECRET` per run) and drops the volumes before and after. In CI it is the
+`integration_tests` staging gate of `promote-staging.yml` (mairie360/CICD `integration/bffs`) on the
+published `dev-<sha>` image: a failure blocks the promotion; the junit report (`newman-reports/newman.xml`,
+gitignored) is published as job summary and artifact.
+
+The BFF is read-only and creates nothing, so the collection only holds **working checks**, on the BFF's own
+routes: folder `Service` (the BFF starts, `/health`, `/check_apis` with the three APIs `Connected`,
+`/openapi.json`, a JSON 404) and folder `Session resolution` (`GET /dashboard/bootstrap` answers 401 without a
+Bearer and for a token signed with another secret, the seeded Admin `sub=1` and agent `sub=2` get their own
+`userFirstName` with every `sources.*` `available`, a `totalProjects` number and the capped `projects` /
+`tasks` / `events` arrays in the contract's vocabulary, a valid token of an account Core does not know is
+refused with the relayed 401). `init-test.sql` seeds no project, task or event: the lists are checked for
+shape, not content; seed some there to assert content.
+
+The seeded accounts have no known password: the collection-level pre-request script forges their JWTs
+(HS256 `{ sub, role, exp }`, like `mairie360_api_lib`) with the `jwt_secret` the compose file injects
+(`jwt_admin`, `jwt_agent`); the committed `environment.json` holds no secret or token. Isolated endpoint checks
+(validation, token refusals of every shape, degraded sources) stay in jest: the collection only holds the checks
+that need the real APIs.
+
+`tests/integration-collection.test.ts` guards the collection with the unit tests: every operation of
+`contracts/openapi.json` has at least one request (a new route needs its request), every request has a
+`pm.test`, every request targets a declared route (or `/openapi.json` / the 404 check), and the environment
+commits no secret. The collection is generated for now from a session script; edit the JSON directly
+(Postman v2.1), keeping one folder per journey and English names.
+
+### Non-regression tests of a bug fix
+
+Every bug fix ships three tests that fail on the old code and pass on the fix, named after the ticket or the bug:
+a **technical unit test** (jest: the upstream-mock suite or the unit test of the route / helper), a **technical
+integration test** (a request of `tests/postman/collection.json` that reproduces the bug on the real stack and pins
+the status and the answer's fields, plus the error envelope when the answer is an error) and a **business integration test** (the journey of the
+collection that the bug broke, extended so that it replays the user flow end to end). Run `./integration_test.sh`
+before opening the PR; skip one of the three only when that layer cannot observe the bug, and say why in the PR.
+
 ## ZAP / k6 OpenAPI coverage gate
 
 `security_test.sh` / `performance_test.sh` clone `mairie360/CICD` into `cicd-repo/` (gitignored) at
@@ -111,32 +174,51 @@ the pinned `cicd_version` (`CICD_VERSION=<branch>` overrides it). ZAP runs its `
 non-401/403 answer. The spec requires `bearerAuth` at the top level (`openapi.ts`); `/health` and
 `/check_apis` set `security: []`. `load-test.js` builds on `coverage.js` with **one handler per
 operation** of `contracts/openapi.json` (mounted by `docker-compose-performance.yml`): a new route
-without a handler makes k6 abort at init. Every operation is a read, so one `reads` scenario (ramp to
-20 VUs) runs `coverage.run()`; each operation gets a `p(95)` threshold from `budgetOf`.
+without a handler makes k6 abort at init. Every operation is a read, so one `reads` scenario runs `coverage.run()` as random seeded agents;
+each operation gets a `p(95)` threshold from `budgetOf`.
+
+MAIR-474: both scripts source `stack_secrets.sh` (a random `JWT_SECRET` per run, `ADMIN_JWT` for the ZAP replacer), drop the volumes before and after a run, exit 1 when a dependency does not start, and `performance_test.sh` pins the stack to `min(PERF_CPUS, nproc)` CPUs (4 by default). `.zap/rules.tsv` no longer ignores rule `100000` (server errors). The perf seeder also runs `init-perf-project.sql` and `init-perf-calendar.sql`, BFF_Project's and BFF_Calendar's copies of the Project_API / Calendar_API volume seeds (keep them in step); the reads run as random agents `100001`-`102000` and check their own first name, at least 2 projects and every source available; `bootstrap_rush` sends `GET /dashboard/bootstrap` at a fixed rate; thresholds are strict (`checks == 100%`, `http_req_failed == 0`, `dropped_iterations == 0`); `K6_PROFILE` is `ci` (default: 20 VUs, rush 10/s) or `stress` (60 VUs, 30/s).
 
 ## Conventions & gotchas
 
 - **ESLint:** `eslint.config.cjs` (flat config, ESLint 9) is the active one; `.eslintrc.js` is
-  legacy and ignored. `@typescript-eslint/no-explicit-any` is an **error**.
+  legacy and ignored. `@typescript-eslint/no-explicit-any` and `no-await-in-loop` (MAIR-525) are **errors**.
 - Error messages, comments and logs are written in **English** (see `../../CLAUDE.md`); translate the French ones you touch.
 - **Docs are bilingual:** any change to `docs/en/*.md` must be mirrored in `docs/fr/*.md`.
-- CI: `contracts.yml` (Node 24: `contracts:check` + tests) and `cicd.yml` (shared
-  `mairie360/CICD/.github/workflows/BFFs-cicd.yml@v3.2.0`, `node_version: "24"` — lint / audits / build / test / release
-  dev→staging→prod, plus `security_tests` / `performance_tests` which run `./security_test.sh` /
-  `./performance_test.sh` at repo root). Keep the `@vX.Y.Z` ref and `cicd_version:` input in sync.
-- Dockerfiles use `node:24-alpine` pinned by digest (both `Dockerfile` stages and `development.Dockerfile`); npm credentials only enter through BuildKit secrets
+- CI: `contracts.yml` (Node 24.22.1: `contracts:check` + tests) and `cicd.yml` (shared
+  `mairie360/CICD/.github/workflows/BFFs-cicd.yml`, `node_version: "24.22.1"` — lint / audits / build / test / release
+  dev), then `promote-staging.yml` (ZAP / k6 through `./security_test.sh` / `./performance_test.sh` at repo root,
+  then staging) and `promote-prod.yml`, manual (MAIR-494). Keep the `@vX.Y.Z` ref and `cicd_version:` input in sync.
+- Dockerfiles use `node:24.22.1-alpine` pinned by digest (both `Dockerfile` stages and `development.Dockerfile`); npm credentials only enter through BuildKit secrets
   (`npmrc`, `node_auth_token`). Locally, the test scripts build `development.Dockerfile` when `IMAGE_REF` is empty.
 - `.npmrc` points `@mairie360:*` at GitHub Packages and needs `NODE_AUTH_TOKEN`: the
-  `@mairie360/bff-*-openapi` devDependencies used by the tests are private.
+  `@mairie360/*-openapi` devDependencies (bundled by esbuild) are private.
 - **Known stale bits** (don't rely on them): `npm run contracts:sync` is referenced in `CONTRACT.md`
   / docs but is not defined in `package.json`, and `scripts/contracts.mjs --sync` has a hardcoded
   `source = null` so it throws.
 
 ## Environment
 
-Copy `.env.example` to `.env`: `PORT` (default 4007), `USER_BFF_URL`, `PROJECT_BFF_URL`,
-`CALENDAR_BFF_URL`. Optional `*_BFF_PORT` counterparts.
+Copy `.env.example` to `.env`: `PORT` (default 4007), `CORE_API_URL`, `PROJECT_API_URL`,
+`CALENDAR_API_URL`, `JWT_SECRET` (required, the upstreams' secret). Optional `*_API_PORT` counterparts.
+
+## Logs (MAIR-531)
+
+Logs are JSON lines on stdout, through `logger` (`src/logger.ts`, `createLogger({ target: 'bff-dashboard' })` of
+`@mairie360/bffs-lib` >= 2.1.0); **no `console.*` in `src/`**. `src/app.ts` mounts `requestLogger({ logger })` first
+(one `request completed` line per request: `request_id`, `method`, matched route, `status`, `duration_ms`; `X-Request-Id`
+answered) and passes the same `logger` to `errorHandler` and `checkApis`. Another line takes `request_id: requestId(req)`
+and scalar fields only; an error goes through `describeError(error)`, never as is (MAIR-290). Tests read the lines with
+`captureLogs()` (`tests/support/logs.ts`), which also silences them.
 
 ## Pull request reviewers
 
 Every PR requests a review from the whole team, minus its author: `CarolinHugo`, `LAURETbenjamin`, `MathTek` and `Quentintnrl` (`gh pr create … --reviewer CarolinHugo,LAURETbenjamin,MathTek`). `.github/CODEOWNERS` makes GitHub request them automatically as well.
+
+## Promotion to staging and prod (MAIR-494)
+
+A push to `main` only releases dev (`cicd.yml` stops at `release-dev`). Staging and prod are manual:
+`gh workflow run promote-staging.yml -R mairie360/BFF_Dashboard` (main's newest commit) or `gh workflow run promote-staging.yml -R mairie360/BFF_Dashboard -f sha=SHA` (a given commit), then the same with `promote-prod.yml`
+(environments `Staging` / `Prod`). Staging refuses a commit without `dev-<sha>` and a green main run, and runs
+the integration (newman, MAIR-262), ZAP and k6 stacks on that image; prod refuses one without `staging-<sha>` and tags the version semantic-release computes
+for that commit. `cicd.yml`, `promote-staging.yml` and `promote-prod.yml` pin the same mairie360/CICD release.
