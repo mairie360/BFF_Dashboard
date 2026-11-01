@@ -11,6 +11,7 @@ import {
   calendarApiUrls, calendarResult, coreApiUrls, coreMe, eventView, projectApiUrls, projectListItem, projectsResult, sessionToken,
   taskListItem, taskListResult,
 } from './support/upstream-fixtures';
+import { captureLogs } from './support/logs';
 
 // /dashboard/bootstrap tested against real HTTP servers simulating Core API, Project API and Calendar API: the
 // dashboard reads the APIs, never another BFF (MAIR-525). Their contracts are rebuilt from the installed
@@ -421,6 +422,35 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expectDashboardContract(response);
       expect(response.body).toEqual({ error: { code: 'BAD_GATEWAY', message, details: [] } });
       expect(JSON.stringify(response.body)).not.toMatch(/boom|secret/);
+    });
+
+    // MAIR-290: the cause of an upstream 502 is the axios error, which holds the caller's Bearer token and the
+    // upstream body. Whatever the BFF writes (JSON log lines on stdout, stderr, console) about the failure describes
+    // it by its type and status, never by these values, nor by the query string of the request.
+    test('MAIR-290 logs an upstream failure without the token, the query string or the upstream body', async () => {
+      mockUpstreams();
+      const stdout = captureLogs();
+      const stderr: string[] = [];
+      jest.spyOn(process.stderr, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+        stderr.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write);
+      for (const level of ['log', 'info', 'warn', 'error', 'debug'] as const) {
+        jest.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+          stderr.push(args.map((arg) => (arg instanceof Error ? `${arg.stack} ${JSON.stringify(arg)}` : typeof arg === 'string' ? arg : JSON.stringify(arg))).join(' '));
+        });
+      }
+      coreApi.on('get', CORE.me, textError(500, 'Profile of Jeanne Marker-290 failed'));
+
+      const response = await request(app).get('/dashboard/bootstrap?search=jeanne.marker290%40example.org').set('Authorization', SESSION);
+
+      expect(response.status).toBe(502);
+      expectDashboardContract(response);
+      const written = [...stdout.map((line) => JSON.stringify(line)), ...stderr].join('\n');
+      expect(written).toContain('502');
+      for (const value of [TOKEN, 'Marker-290', 'jeanne.marker290']) {
+        expect(written).not.toContain(value);
+      }
     });
 
     test('mair_562 a persistent Core 429 on /user/me is answered 429 with Retry-After, not 502', async () => {
