@@ -24,7 +24,8 @@ app.get(['/openapi.json', '/swagger.json'], (_req, res) => res.json(openApiDocum
 app.use('/health', healthRouter);
 app.use('/check_apis', checkApis);
 // Session-bound answers: never cached, and refused with a 401 before any upstream call unless the Bearer token
-// is a session signed with JWT_SECRET (bffs-lib requireSession, MAIR-474).
+// is a session Core signed, verified with its public key JWT_PUBLIC_KEY (bffs-lib requireSession, MAIR-474,
+// MAIR-680).
 app.use('/dashboard', noStore, requireSession, moduleRouter);
 // Unknown routes and every error end in the shared envelope `{ error: { code, message, details } }`:
 // the status of the error is kept (400 for an unparsable body, 401, 502, 503...) and anything
