@@ -20,6 +20,9 @@ steps:
   - name: read the bootstrap with an invalid token (deliberate error)
     request: {method: GET, path: "/dashboard/bootstrap?search={{marker.email}}", headers: {Authorization: "Bearer {{marker.password}}"}}
     expect: [401]
+  - name: check the upstream APIs with a query string holding the marker
+    request: {method: GET, path: "/check_apis?email={{marker.email}}&phone={{marker.phone}}"}
+    expect: [200]
   - name: read a route that does not exist (deliberate error)
     request: {method: GET, path: "/dashboard/{{marker.last_name}}?email={{marker.email}}", headers: {Authorization: "Bearer {{env.ADMIN_JWT}}"}}
     expect: [404]
