@@ -43,7 +43,7 @@ Isolated perf/security stacks (need Docker + GHCR pull access for the upstream i
 
 Each stack brings up the **full real upstream chain** — postgres + liquibase + seeder
 (`init-test.sql`, user id 2) + redis + core/project/calendar APIs + this BFF (no other BFF since MAIR-525) — then runs k6 (`load-test.js`) or ZAP against `/dashboard/bootstrap`. Test JWTs are
-HS256 signed with the random `JWT_SECRET` that `stack_secrets.sh` generates for each run (ZAP: `ADMIN_JWT`, `sub=1`; k6: random seeded agents). The BFF under test is never built by the compose files:
+EdDSA, signed like Core with the Ed25519 key pair that `stack_secrets.sh` generates for each run (MAIR-680; ZAP: `ADMIN_JWT`, `sub=1`; k6: random seeded agents, read from the `/tokens.json` `performance_test.sh` signs, k6 cannot sign Ed25519). The BFF under test is never built by the compose files:
 they run `IMAGE_REF` (CI passes the image `release-dev` just pushed); with `IMAGE_REF` empty the scripts
 build `bff-dashboard:local` from `development.Dockerfile` first.
 
@@ -58,8 +58,10 @@ Swagger UI at `/docs`, the spec at `/openapi.json` and `/swagger.json`, and the 
   optionally appending `${service}_PORT`. Missing/invalid config → `HttpError(503)`; no `localhost` default.
 - The session is the `Authorization: Bearer <token>` header only (lib `authorization` / `requireSession`;
   cookies and `x-session-token` are ignored). `app.ts` mounts `noStore, requireSession` on `/dashboard`, so a
-  request without a token signed with `JWT_SECRET` (HS256, numeric `sub`, not expired) gets a 401 before any
-  upstream call (`start()` refuses to run without `JWT_SECRET`; `tests/token-refusals.test.ts` sweeps forged
+  request without a token verified with Core's public key `JWT_PUBLIC_KEY` (EdDSA under Core's `kid`, `iss`, `aud`,
+  numeric `sub`, not expired; MAIR-680, bffs-lib >= 2.7.0, HS256 only while `JWT_SECRET` is still set) gets a 401
+  before any upstream call (`start()` runs `assertStartupConfiguration()`, which refuses a missing or malformed key;
+  `tests/mair-680-eddsa-session.test.ts` pins the EdDSA / HS256 cases; `tests/token-refusals.test.ts` sweeps forged
   tokens over every secured operation of the contract, with a genuine-token control); the token is forwarded, normalised to
   `Bearer <token>`, to every upstream API. `trust proxy` comes from `TRUST_PROXY` (lib `parseTrustProxy`).
 - `src/clients/upstreams.ts` only wraps the generated `@mairie360/{core,project,calendar}-api-openapi` clients
@@ -131,7 +133,7 @@ Calendar API images, database + liquibase + `init-test.sql`, Redis) and a `newma
 `tests/postman/collection.json` with `tests/postman/environment.json` against the BFF, `--bail` on the first
 failing request; the exit code of newman is the exit code of the script. Like the other stacks it tests the
 image named by `IMAGE_REF` (`bff-dashboard:local` built from `development.Dockerfile` when empty), sources
-`stack_secrets.sh` (random `JWT_SECRET` per run) and drops the volumes before and after. In CI it is the
+`stack_secrets.sh` (fresh Ed25519 key pair per run, MAIR-680) and drops the volumes before and after. In CI it is the
 `integration_tests` staging gate of `promote-staging.yml` (mairie360/CICD `integration/bffs`) on the
 published `dev-<sha>` image: a failure blocks the promotion; the junit report (`newman-reports/newman.xml`,
 gitignored) is published as job summary and artifact.
@@ -145,9 +147,10 @@ Bearer and for a token signed with another secret, the seeded Admin `sub=1` and 
 refused with the relayed 401). `init-test.sql` seeds no project, task or event: the lists are checked for
 shape, not content; seed some there to assert content.
 
-The seeded accounts have no known password: the collection-level pre-request script forges their JWTs
-(HS256 `{ sub, role, exp }`, like `mairie360_api_lib`) with the `jwt_secret` the compose file injects
-(`jwt_admin`, `jwt_agent`); the committed `environment.json` holds no secret or token. Isolated endpoint checks
+The seeded accounts have no known password and the Postman sandbox cannot sign EdDSA: `integration_test.sh` signs
+their JWTs with the run's key like Core and the compose file injects them (`jwt_admin`, `jwt_agent`, and
+`jwt_forged`, Core's `kid` with another key); the pre-request script only forges `jwt_hs256`, an HS256 Admin token.
+Both are refused in `Session resolution` and the dashboard journey (MAIR-680); the committed `environment.json` holds no secret or token. Isolated endpoint checks
 (validation, token refusals of every shape, degraded sources) stay in jest: the collection only holds the checks
 that need the real APIs.
 
@@ -177,7 +180,8 @@ operation** of `contracts/openapi.json` (mounted by `docker-compose-performance.
 without a handler makes k6 abort at init. Every operation is a read, so one `reads` scenario runs `coverage.run()` as random seeded agents;
 each operation gets a `p(95)` threshold from `budgetOf`.
 
-MAIR-474: both scripts source `stack_secrets.sh` (a random `JWT_SECRET` per run, `ADMIN_JWT` for the ZAP replacer), drop the volumes before and after a run, exit 1 when a dependency does not start, and `performance_test.sh` pins the stack to `min(PERF_CPUS, nproc)` CPUs (4 by default). `.zap/rules.tsv` no longer ignores rule `100000` (server errors). The perf seeder also runs `init-perf-project.sql` and `init-perf-calendar.sql`, BFF_Project's and BFF_Calendar's copies of the Project_API / Calendar_API volume seeds (keep them in step); the reads run as random agents `100001`-`102000` and check their own first name, at least 2 projects and every source available; `bootstrap_rush` sends `GET /dashboard/bootstrap` at a fixed rate; thresholds are strict (`checks == 100%`, `http_req_failed == 0`, `dropped_iterations == 0`); `K6_PROFILE` is `ci` (default: 20 VUs, rush 10/s) or `stress` (60 VUs, 30/s).
+MAIR-474: both scripts source `stack_secrets.sh` (a fresh Ed25519 key pair per run, `ADMIN_JWT` for the ZAP replacer; k6 reads the EdDSA tokens
+`performance_test.sh` signs into `/tokens.json`, MAIR-680), drop the volumes before and after a run, exit 1 when a dependency does not start, and `performance_test.sh` pins the stack to `min(PERF_CPUS, nproc)` CPUs (4 by default). `.zap/rules.tsv` no longer ignores rule `100000` (server errors). The perf seeder also runs `init-perf-project.sql` and `init-perf-calendar.sql`, BFF_Project's and BFF_Calendar's copies of the Project_API / Calendar_API volume seeds (keep them in step); the reads run as random agents `100001`-`102000` and check their own first name, at least 2 projects and every source available; `bootstrap_rush` sends `GET /dashboard/bootstrap` at a fixed rate; thresholds are strict (`checks == 100%`, `http_req_failed == 0`, `dropped_iterations == 0`); `K6_PROFILE` is `ci` (default: 20 VUs, rush 10/s) or `stress` (60 VUs, 30/s).
 
 ## Conventions & gotchas
 
@@ -200,7 +204,7 @@ MAIR-474: both scripts source `stack_secrets.sh` (a random `JWT_SECRET` per run,
 ## Environment
 
 Copy `.env.example` to `.env`: `PORT` (default 4007), `CORE_API_URL`, `PROJECT_API_URL`,
-`CALENDAR_API_URL`, `JWT_SECRET` (required, the upstreams' secret). Optional `*_API_PORT` counterparts.
+`CALENDAR_API_URL`, `JWT_PUBLIC_KEY` (required, Core's Ed25519 public key, MAIR-680; `JWT_SECRET` only during the HS256 transition). Optional `*_API_PORT` counterparts.
 
 ## Logs (MAIR-531)
 
