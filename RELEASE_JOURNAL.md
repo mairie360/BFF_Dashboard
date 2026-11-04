@@ -1,45 +1,43 @@
 # Journal des releases — BFF_Dashboard
 
-<!-- release-journal-state {"dev": "56d35d56f817364e821d2bb8350353dd5824bee4", "prod": "d1bb5cf95a3b359f129f65f705fbcdea68bd337e", "prod_tag": "v2.1.0", "staging": "d1bb5cf95a3b359f129f65f705fbcdea68bd337e", "updated": {"dev": "2026-11-03 14:16 UTC", "prod": "2026-10-21 10:10 UTC", "staging": "2026-10-21 09:45 UTC"}} -->
+<!-- release-journal-state {"dev": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "prod": "d1bb5cf95a3b359f129f65f705fbcdea68bd337e", "prod_tag": "v2.1.0", "staging": "d1bb5cf95a3b359f129f65f705fbcdea68bd337e", "updated": {"dev": "2026-11-04 18:18 UTC", "prod": "2026-10-21 10:10 UTC", "staging": "2026-10-21 09:45 UTC"}} -->
 > Tenu à jour par la CI (`mairie360/CICD`, action `release/release-journal`) à chaque passage en dev, staging et prod. Ne pas modifier à la main : le fichier est réécrit au passage suivant.
 
 | Environnement | Version | Commit | Mis à jour |
 | --- | --- | --- | --- |
 | prod | v2.1.0 | `d1bb5cf` | 2026-10-21 10:10 UTC |
 | staging | — | `d1bb5cf` | 2026-10-21 09:45 UTC |
-| dev | — | `56d35d5` | 2026-11-03 14:16 UTC |
+| dev | — | `ffa2b2e` | 2026-11-04 18:18 UTC |
 
 ## Ajouté sur main depuis la dernière release prod (v2.1.0)
 
 #### Changements de comportement
-- Les routes `/dashboard` (dont `GET /dashboard/bootstrap`) n'acceptent plus les jetons HS256 signés avec l'ancien secret partagé : ils reçoivent un 401 avant tout appel upstream. La session est vérifiée avec la clé publique Ed25519 de Core (`JWT_PUBLIC_KEY`, EdDSA sous le `kid` de Core, `iss` et `aud`). HS256 n'est accepté que tant que `JWT_SECRET` est défini (transition). Un jeton EdDSA signé avec une autre clé reçoit aussi un 401. (MAIR-680, [#124](https://github.com/mairie360/BFF_Dashboard/pull/124))
-- Démarrage : le BFF refuse de démarrer sans `JWT_PUBLIC_KEY` ou avec une clé mal formée. Un déploiement qui ne fournit que `JWT_SECRET` ne démarre plus ; le `.env` doit désormais contenir `JWT_PUBLIC_KEY`. (MAIR-680, [#124](https://github.com/mairie360/BFF_Dashboard/pull/124))
-- Le diff de #124 est tronqué : ce comportement est déduit des tests, de la documentation et de la description de la PR.
+- Les jetons de session sont vérifiés avec la clé publique Ed25519 de Core (`JWT_PUBLIC_KEY`, EdDSA, `kid`, `iss`, `aud`) au lieu du secret HS256 partagé avec les autres services. Un jeton HS256 reçoit désormais un 401 avant tout appel amont ; le HS256 n'est accepté que tant que `JWT_SECRET` est défini (transition). Le démarrage échoue sans `JWT_PUBLIC_KEY` valide. Les appelants doivent présenter des jetons émis par Core. (MAIR-680, [#124](https://github.com/mairie360/BFF_Dashboard/pull/124), [#125](https://github.com/mairie360/BFF_Dashboard/pull/125))
 
 #### Technique
-- Stacks de test (intégration, sécurité, RGPD, performance) : Core reçoit `JWT_PRIVATE_KEY` ; paire Ed25519 générée à chaque run, `stack_secrets.sh` refuse une paire pré-exportée incohérente ; k6 lit des jetons EdDSA écrits dans un répertoire `mktemp -d` en mode 700 ; images des API de test épinglées sur `dev-*`. (MAIR-680, [#124](https://github.com/mairie360/BFF_Dashboard/pull/124), [#125](https://github.com/mairie360/BFF_Dashboard/pull/125))
-- Dépendances : actions et images Docker épinglées par digest (checkout, setup-node, node, postgres, redis, curl, k6, newman, ZAP), zod passé en 4.6.7, `renovate.json` couvre `gdpr-pr.yml`. ([#118](https://github.com/mairie360/BFF_Dashboard/pull/118), [#124](https://github.com/mairie360/BFF_Dashboard/pull/124))
-- CI : workflows passés sur CICD v5.2.2, avec `ANTHROPIC_WORKSPACE_ID` transmis ; test de garde `tests/mair-771-cicd-version.test.ts`. (MAIR-771, [#121](https://github.com/mairie360/BFF_Dashboard/pull/121))
-- CI : nouveau workflow `gdpr-pr.yml` qui contrôle la checklist RGPD de chaque PR (check « GDPR checklist »). (MAIR-295, [#65](https://github.com/mairie360/BFF_Dashboard/pull/65))
-- Tests : suite d'intégration newman (`integration_test.sh`, collection Postman) ; test du marqueur RGPD (`gdpr_marker_test.sh`) ; test unitaire qui vérifie qu'une erreur upstream ne journalise ni le jeton, ni la query string, ni le corps. (MAIR-262, [#112](https://github.com/mairie360/BFF_Dashboard/pull/112) ; MAIR-290, [#62](https://github.com/mairie360/BFF_Dashboard/pull/62))
-- Runtime : Node.js 24.22.1 pour Dockerfile, `development.Dockerfile` et le job contrats ; le conteneur de développement tourne désormais sous l'utilisateur `node`. ([#113](https://github.com/mairie360/BFF_Dashboard/pull/113))
-- Documentation (en/fr) mise à jour pour les versions CICD et Node. ([#109](https://github.com/mairie360/BFF_Dashboard/pull/109), [#113](https://github.com/mairie360/BFF_Dashboard/pull/113), [#121](https://github.com/mairie360/BFF_Dashboard/pull/121), [#124](https://github.com/mairie360/BFF_Dashboard/pull/124))
+- Montée de version de la CI : `cicd.yml`, `gdpr-pr.yml`, `promote-staging.yml` et `promote-prod.yml` appellent mairie360/CICD en v5.2.2 (MAIR-771, [#121](https://github.com/mairie360/BFF_Dashboard/pull/121)), puis en v5.3.1 (MAIR-497, [#123](https://github.com/mairie360/BFF_Dashboard/pull/123)).
+- Simulation d'usage RGPD avant prod (MAIR-497, [#123](https://github.com/mairie360/BFF_Dashboard/pull/123)) : ajout de `gdpr-simulation.yaml`, `docker-compose-gdpr-simulation.yml` et `gdpr_simulation_test.sh` ; la PR dépend de Database#222. Le diff de `gdpr-simulation.yaml` est tronqué, le détail des scénarios n'est pas vérifiable ici.
+- Checklist RGPD sur chaque pull request (MAIR-295, [#65](https://github.com/mairie360/BFF_Dashboard/pull/65)) : workflow `gdpr-pr.yml`.
+- Test du marqueur de logs RGPD (MAIR-290, [#62](https://github.com/mairie360/BFF_Dashboard/pull/62)) : `gdpr-marker.yaml`, `docker-compose-gdpr-marker.yml`, `gdpr_marker_test.sh` et un test unitaire sur les logs d'erreur de l'amont (diff tronqué).
+- Tests d'intégration sur stack réelle (MAIR-262, [#112](https://github.com/mairie360/BFF_Dashboard/pull/112)) : `docker-compose-integration.yml`, `integration_test.sh` et la collection Postman rejouée par newman.
+- Stacks de test MAIR-680 : clé Ed25519 par run, contrôle de la paire dans `stack_secrets.sh`, jetons k6 dans un répertoire en mode 700.
+- Dépendances et images : `zod` passe de 4.6.5 à 4.6.7 ; images épinglées par digest (Renovate, [#118](https://github.com/mairie360/BFF_Dashboard/pull/118)) ; Node.js 24.22.1 pour la CI et les images Docker (correctif de sécurité, [#113](https://github.com/mairie360/BFF_Dashboard/pull/113)). `development.Dockerfile` s'exécute désormais sous l'utilisateur `node`, sans effet sur la production.
+- Documentation mise à jour (CLAUDE.md, docs en/fr) pour les versions CI et l'authentification.
 
 ## Différence dev → staging (en dev, pas encore en staging)
 
 #### Changements de comportement
-- Les routes `/dashboard` (dont `GET /dashboard/bootstrap`) n'acceptent plus les jetons HS256 signés avec l'ancien secret partagé : ils reçoivent un 401 avant tout appel upstream. La session est vérifiée avec la clé publique Ed25519 de Core (`JWT_PUBLIC_KEY`, EdDSA sous le `kid` de Core, `iss` et `aud`). HS256 n'est accepté que tant que `JWT_SECRET` est défini (transition). Un jeton EdDSA signé avec une autre clé reçoit aussi un 401. (MAIR-680, [#124](https://github.com/mairie360/BFF_Dashboard/pull/124))
-- Démarrage : le BFF refuse de démarrer sans `JWT_PUBLIC_KEY` ou avec une clé mal formée. Un déploiement qui ne fournit que `JWT_SECRET` ne démarre plus ; le `.env` doit désormais contenir `JWT_PUBLIC_KEY`. (MAIR-680, [#124](https://github.com/mairie360/BFF_Dashboard/pull/124))
-- Le diff de #124 est tronqué : ce comportement est déduit des tests, de la documentation et de la description de la PR.
+- Les jetons de session sont vérifiés avec la clé publique Ed25519 de Core (`JWT_PUBLIC_KEY`, EdDSA, `kid`, `iss`, `aud`) au lieu du secret HS256 partagé avec les autres services. Un jeton HS256 reçoit désormais un 401 avant tout appel amont ; le HS256 n'est accepté que tant que `JWT_SECRET` est défini (transition). Le démarrage échoue sans `JWT_PUBLIC_KEY` valide. Les appelants doivent présenter des jetons émis par Core. (MAIR-680, [#124](https://github.com/mairie360/BFF_Dashboard/pull/124), [#125](https://github.com/mairie360/BFF_Dashboard/pull/125))
 
 #### Technique
-- Stacks de test (intégration, sécurité, RGPD, performance) : Core reçoit `JWT_PRIVATE_KEY` ; paire Ed25519 générée à chaque run, `stack_secrets.sh` refuse une paire pré-exportée incohérente ; k6 lit des jetons EdDSA écrits dans un répertoire `mktemp -d` en mode 700 ; images des API de test épinglées sur `dev-*`. (MAIR-680, [#124](https://github.com/mairie360/BFF_Dashboard/pull/124), [#125](https://github.com/mairie360/BFF_Dashboard/pull/125))
-- Dépendances : actions et images Docker épinglées par digest (checkout, setup-node, node, postgres, redis, curl, k6, newman, ZAP), zod passé en 4.6.7, `renovate.json` couvre `gdpr-pr.yml`. ([#118](https://github.com/mairie360/BFF_Dashboard/pull/118), [#124](https://github.com/mairie360/BFF_Dashboard/pull/124))
-- CI : workflows passés sur CICD v5.2.2, avec `ANTHROPIC_WORKSPACE_ID` transmis ; test de garde `tests/mair-771-cicd-version.test.ts`. (MAIR-771, [#121](https://github.com/mairie360/BFF_Dashboard/pull/121))
-- CI : nouveau workflow `gdpr-pr.yml` qui contrôle la checklist RGPD de chaque PR (check « GDPR checklist »). (MAIR-295, [#65](https://github.com/mairie360/BFF_Dashboard/pull/65))
-- Tests : suite d'intégration newman (`integration_test.sh`, collection Postman) ; test du marqueur RGPD (`gdpr_marker_test.sh`) ; test unitaire qui vérifie qu'une erreur upstream ne journalise ni le jeton, ni la query string, ni le corps. (MAIR-262, [#112](https://github.com/mairie360/BFF_Dashboard/pull/112) ; MAIR-290, [#62](https://github.com/mairie360/BFF_Dashboard/pull/62))
-- Runtime : Node.js 24.22.1 pour Dockerfile, `development.Dockerfile` et le job contrats ; le conteneur de développement tourne désormais sous l'utilisateur `node`. ([#113](https://github.com/mairie360/BFF_Dashboard/pull/113))
-- Documentation (en/fr) mise à jour pour les versions CICD et Node. ([#109](https://github.com/mairie360/BFF_Dashboard/pull/109), [#113](https://github.com/mairie360/BFF_Dashboard/pull/113), [#121](https://github.com/mairie360/BFF_Dashboard/pull/121), [#124](https://github.com/mairie360/BFF_Dashboard/pull/124))
+- Montée de version de la CI : `cicd.yml`, `gdpr-pr.yml`, `promote-staging.yml` et `promote-prod.yml` appellent mairie360/CICD en v5.2.2 (MAIR-771, [#121](https://github.com/mairie360/BFF_Dashboard/pull/121)), puis en v5.3.1 (MAIR-497, [#123](https://github.com/mairie360/BFF_Dashboard/pull/123)).
+- Simulation d'usage RGPD avant prod (MAIR-497, [#123](https://github.com/mairie360/BFF_Dashboard/pull/123)) : ajout de `gdpr-simulation.yaml`, `docker-compose-gdpr-simulation.yml` et `gdpr_simulation_test.sh` ; la PR dépend de Database#222. Le diff de `gdpr-simulation.yaml` est tronqué, le détail des scénarios n'est pas vérifiable ici.
+- Checklist RGPD sur chaque pull request (MAIR-295, [#65](https://github.com/mairie360/BFF_Dashboard/pull/65)) : workflow `gdpr-pr.yml`.
+- Test du marqueur de logs RGPD (MAIR-290, [#62](https://github.com/mairie360/BFF_Dashboard/pull/62)) : `gdpr-marker.yaml`, `docker-compose-gdpr-marker.yml`, `gdpr_marker_test.sh` et un test unitaire sur les logs d'erreur de l'amont (diff tronqué).
+- Tests d'intégration sur stack réelle (MAIR-262, [#112](https://github.com/mairie360/BFF_Dashboard/pull/112)) : `docker-compose-integration.yml`, `integration_test.sh` et la collection Postman rejouée par newman.
+- Stacks de test MAIR-680 : clé Ed25519 par run, contrôle de la paire dans `stack_secrets.sh`, jetons k6 dans un répertoire en mode 700.
+- Dépendances et images : `zod` passe de 4.6.5 à 4.6.7 ; images épinglées par digest (Renovate, [#118](https://github.com/mairie360/BFF_Dashboard/pull/118)) ; Node.js 24.22.1 pour la CI et les images Docker (correctif de sécurité, [#113](https://github.com/mairie360/BFF_Dashboard/pull/113)). `development.Dockerfile` s'exécute désormais sous l'utilisateur `node`, sans effet sur la production.
+- Documentation mise à jour (CLAUDE.md, docs en/fr) pour les versions CI et l'authentification.
 
 ## Différence staging → prod (en staging, pas encore en prod)
 
@@ -50,6 +48,7 @@ _Rien._
 <!-- release-journal-history:start -->
 | Date | Environnement | Version | Commit | Run |
 | --- | --- | --- | --- | --- |
+| 2026-11-04 18:18 UTC | dev | — | `ffa2b2e` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/41883215442) |
 | 2026-11-03 14:16 UTC | dev | — | `56d35d5` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/41651645538) |
 | 2026-11-03 14:02 UTC | dev | — | `d43fdd7` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/41648181805) |
 | 2026-11-03 00:01 UTC | dev | — | `43cad33` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/41548518601) |
