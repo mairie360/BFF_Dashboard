@@ -1,53 +1,52 @@
 # Journal des releases — BFF_Dashboard
 
-<!-- release-journal-state {"dev": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "prod": "d1bb5cf95a3b359f129f65f705fbcdea68bd337e", "prod_tag": "v2.1.0", "staging": "d1bb5cf95a3b359f129f65f705fbcdea68bd337e", "updated": {"dev": "2026-11-04 18:18 UTC", "prod": "2026-10-21 10:10 UTC", "staging": "2026-10-21 09:45 UTC"}} -->
+<!-- release-journal-state {"dev": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "prod": "d1bb5cf95a3b359f129f65f705fbcdea68bd337e", "prod_tag": "v2.1.0", "staging": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "updated": {"dev": "2026-11-04 18:18 UTC", "prod": "2026-10-21 10:10 UTC", "staging": "2026-11-12 18:58 UTC"}} -->
 > Tenu à jour par la CI (`mairie360/CICD`, action `release/release-journal`) à chaque passage en dev, staging et prod. Ne pas modifier à la main : le fichier est réécrit au passage suivant.
 
 | Environnement | Version | Commit | Mis à jour |
 | --- | --- | --- | --- |
 | prod | v2.1.0 | `d1bb5cf` | 2026-10-21 10:10 UTC |
-| staging | — | `d1bb5cf` | 2026-10-21 09:45 UTC |
+| staging | — | `ffa2b2e` | 2026-11-12 18:58 UTC |
 | dev | — | `ffa2b2e` | 2026-11-04 18:18 UTC |
 
 ## Ajouté sur main depuis la dernière release prod (v2.1.0)
 
-#### Changements de comportement
-- Les jetons de session sont vérifiés avec la clé publique Ed25519 de Core (`JWT_PUBLIC_KEY`, EdDSA, `kid`, `iss`, `aud`) au lieu du secret HS256 partagé avec les autres services. Un jeton HS256 reçoit désormais un 401 avant tout appel amont ; le HS256 n'est accepté que tant que `JWT_SECRET` est défini (transition). Le démarrage échoue sans `JWT_PUBLIC_KEY` valide. Les appelants doivent présenter des jetons émis par Core. (MAIR-680, [#124](https://github.com/mairie360/BFF_Dashboard/pull/124), [#125](https://github.com/mairie360/BFF_Dashboard/pull/125))
-
-#### Technique
-- Montée de version de la CI : `cicd.yml`, `gdpr-pr.yml`, `promote-staging.yml` et `promote-prod.yml` appellent mairie360/CICD en v5.2.2 (MAIR-771, [#121](https://github.com/mairie360/BFF_Dashboard/pull/121)), puis en v5.3.1 (MAIR-497, [#123](https://github.com/mairie360/BFF_Dashboard/pull/123)).
-- Simulation d'usage RGPD avant prod (MAIR-497, [#123](https://github.com/mairie360/BFF_Dashboard/pull/123)) : ajout de `gdpr-simulation.yaml`, `docker-compose-gdpr-simulation.yml` et `gdpr_simulation_test.sh` ; la PR dépend de Database#222. Le diff de `gdpr-simulation.yaml` est tronqué, le détail des scénarios n'est pas vérifiable ici.
-- Checklist RGPD sur chaque pull request (MAIR-295, [#65](https://github.com/mairie360/BFF_Dashboard/pull/65)) : workflow `gdpr-pr.yml`.
-- Test du marqueur de logs RGPD (MAIR-290, [#62](https://github.com/mairie360/BFF_Dashboard/pull/62)) : `gdpr-marker.yaml`, `docker-compose-gdpr-marker.yml`, `gdpr_marker_test.sh` et un test unitaire sur les logs d'erreur de l'amont (diff tronqué).
-- Tests d'intégration sur stack réelle (MAIR-262, [#112](https://github.com/mairie360/BFF_Dashboard/pull/112)) : `docker-compose-integration.yml`, `integration_test.sh` et la collection Postman rejouée par newman.
-- Stacks de test MAIR-680 : clé Ed25519 par run, contrôle de la paire dans `stack_secrets.sh`, jetons k6 dans un répertoire en mode 700.
-- Dépendances et images : `zod` passe de 4.6.5 à 4.6.7 ; images épinglées par digest (Renovate, [#118](https://github.com/mairie360/BFF_Dashboard/pull/118)) ; Node.js 24.22.1 pour la CI et les images Docker (correctif de sécurité, [#113](https://github.com/mairie360/BFF_Dashboard/pull/113)). `development.Dockerfile` s'exécute désormais sous l'utilisateur `node`, sans effet sur la production.
-- Documentation mise à jour (CLAUDE.md, docs en/fr) pour les versions CI et l'authentification.
+- feat: MAIR-497 GDPR - Usage simulation and AI review of logs and database before prod ([#123](https://github.com/mairie360/BFF_Dashboard/pull/123))
+- fix: MAIR-680 [Audit 23/10] Toutes les APIs et BFFs : remplacer le secret JWT HS256 partagé par 12 services (A1) ([#125](https://github.com/mairie360/BFF_Dashboard/pull/125))
+- fix: MAIR-680 [Audit 23/10] Toutes les APIs et BFFs : remplacer le secret JWT HS256 partagé par 12 services (A1) ([#124](https://github.com/mairie360/BFF_Dashboard/pull/124))
+- ci: MAIR-771 APIs, BFFs, Database : monter CICD en v5.2.2 pour activer les contrôles RGPD (#121) ([#121](https://github.com/mairie360/BFF_Dashboard/pull/121))
+- chore(deps): pin dependencies (#118) ([#118](https://github.com/mairie360/BFF_Dashboard/pull/118))
+- fix: MAIR-290 Détecter les données personnelles dans les journaux avec un test du marqueur (#62) ([#62](https://github.com/mairie360/BFF_Dashboard/pull/62))
+- ci: MAIR-295 Ajouter une checklist RGPD aux PR et des rappels d'échéances automatiques (#65) ([#65](https://github.com/mairie360/BFF_Dashboard/pull/65))
+- fix(security): patch Node.js runtime and toolchain (#113) ([#113](https://github.com/mairie360/BFF_Dashboard/pull/113))
+- feat: MAIR-262 Tests d'intégration - Tests de fonctionnement des APIs, tests métier des BFFs et tests de régression (#112) ([#112](https://github.com/mairie360/BFF_Dashboard/pull/112))
+- docs: MAIR-612 Release prod: align internal versions and deploy (#109) ([#109](https://github.com/mairie360/BFF_Dashboard/pull/109))
 
 ## Différence dev → staging (en dev, pas encore en staging)
 
-#### Changements de comportement
-- Les jetons de session sont vérifiés avec la clé publique Ed25519 de Core (`JWT_PUBLIC_KEY`, EdDSA, `kid`, `iss`, `aud`) au lieu du secret HS256 partagé avec les autres services. Un jeton HS256 reçoit désormais un 401 avant tout appel amont ; le HS256 n'est accepté que tant que `JWT_SECRET` est défini (transition). Le démarrage échoue sans `JWT_PUBLIC_KEY` valide. Les appelants doivent présenter des jetons émis par Core. (MAIR-680, [#124](https://github.com/mairie360/BFF_Dashboard/pull/124), [#125](https://github.com/mairie360/BFF_Dashboard/pull/125))
-
-#### Technique
-- Montée de version de la CI : `cicd.yml`, `gdpr-pr.yml`, `promote-staging.yml` et `promote-prod.yml` appellent mairie360/CICD en v5.2.2 (MAIR-771, [#121](https://github.com/mairie360/BFF_Dashboard/pull/121)), puis en v5.3.1 (MAIR-497, [#123](https://github.com/mairie360/BFF_Dashboard/pull/123)).
-- Simulation d'usage RGPD avant prod (MAIR-497, [#123](https://github.com/mairie360/BFF_Dashboard/pull/123)) : ajout de `gdpr-simulation.yaml`, `docker-compose-gdpr-simulation.yml` et `gdpr_simulation_test.sh` ; la PR dépend de Database#222. Le diff de `gdpr-simulation.yaml` est tronqué, le détail des scénarios n'est pas vérifiable ici.
-- Checklist RGPD sur chaque pull request (MAIR-295, [#65](https://github.com/mairie360/BFF_Dashboard/pull/65)) : workflow `gdpr-pr.yml`.
-- Test du marqueur de logs RGPD (MAIR-290, [#62](https://github.com/mairie360/BFF_Dashboard/pull/62)) : `gdpr-marker.yaml`, `docker-compose-gdpr-marker.yml`, `gdpr_marker_test.sh` et un test unitaire sur les logs d'erreur de l'amont (diff tronqué).
-- Tests d'intégration sur stack réelle (MAIR-262, [#112](https://github.com/mairie360/BFF_Dashboard/pull/112)) : `docker-compose-integration.yml`, `integration_test.sh` et la collection Postman rejouée par newman.
-- Stacks de test MAIR-680 : clé Ed25519 par run, contrôle de la paire dans `stack_secrets.sh`, jetons k6 dans un répertoire en mode 700.
-- Dépendances et images : `zod` passe de 4.6.5 à 4.6.7 ; images épinglées par digest (Renovate, [#118](https://github.com/mairie360/BFF_Dashboard/pull/118)) ; Node.js 24.22.1 pour la CI et les images Docker (correctif de sécurité, [#113](https://github.com/mairie360/BFF_Dashboard/pull/113)). `development.Dockerfile` s'exécute désormais sous l'utilisateur `node`, sans effet sur la production.
-- Documentation mise à jour (CLAUDE.md, docs en/fr) pour les versions CI et l'authentification.
+_Rien._
 
 ## Différence staging → prod (en staging, pas encore en prod)
 
-_Rien._
+- feat: MAIR-497 GDPR - Usage simulation and AI review of logs and database before prod ([#123](https://github.com/mairie360/BFF_Dashboard/pull/123))
+- fix: MAIR-680 [Audit 23/10] Toutes les APIs et BFFs : remplacer le secret JWT HS256 partagé par 12 services (A1) ([#125](https://github.com/mairie360/BFF_Dashboard/pull/125))
+- fix: MAIR-680 [Audit 23/10] Toutes les APIs et BFFs : remplacer le secret JWT HS256 partagé par 12 services (A1) ([#124](https://github.com/mairie360/BFF_Dashboard/pull/124))
+- ci: MAIR-771 APIs, BFFs, Database : monter CICD en v5.2.2 pour activer les contrôles RGPD (#121) ([#121](https://github.com/mairie360/BFF_Dashboard/pull/121))
+- chore(deps): pin dependencies (#118) ([#118](https://github.com/mairie360/BFF_Dashboard/pull/118))
+- fix: MAIR-290 Détecter les données personnelles dans les journaux avec un test du marqueur (#62) ([#62](https://github.com/mairie360/BFF_Dashboard/pull/62))
+- ci: MAIR-295 Ajouter une checklist RGPD aux PR et des rappels d'échéances automatiques (#65) ([#65](https://github.com/mairie360/BFF_Dashboard/pull/65))
+- fix(security): patch Node.js runtime and toolchain (#113) ([#113](https://github.com/mairie360/BFF_Dashboard/pull/113))
+- feat: MAIR-262 Tests d'intégration - Tests de fonctionnement des APIs, tests métier des BFFs et tests de régression (#112) ([#112](https://github.com/mairie360/BFF_Dashboard/pull/112))
+- docs: MAIR-612 Release prod: align internal versions and deploy (#109) ([#109](https://github.com/mairie360/BFF_Dashboard/pull/109))
+
+> Résumé Claude indisponible pour ce passage : listes brutes des commits.
 
 ## Historique des passages
 
 <!-- release-journal-history:start -->
 | Date | Environnement | Version | Commit | Run |
 | --- | --- | --- | --- | --- |
+| 2026-11-12 18:58 UTC | staging | — | `ffa2b2e` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/43284348669) |
 | 2026-11-04 18:18 UTC | dev | — | `ffa2b2e` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/41883215442) |
 | 2026-11-03 14:16 UTC | dev | — | `56d35d5` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/41651645538) |
 | 2026-11-03 14:02 UTC | dev | — | `d43fdd7` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/41648181805) |
