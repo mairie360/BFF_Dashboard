@@ -1,31 +1,34 @@
 # Journal des releases — BFF_Dashboard
 
-<!-- release-journal-state {"dev": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "prod": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "prod_tag": "v2.2.0", "staging": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "updated": {"dev": "2026-11-04 18:18 UTC", "prod": "2026-11-13 00:15 UTC", "staging": "2026-11-12 18:58 UTC"}} -->
+<!-- release-journal-state {"dev": "3dd5a0afce13ded6138d1556b833ee6673154dc6", "prod": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "prod_tag": "v2.2.0", "staging": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "updated": {"dev": "2026-11-13 06:43 UTC", "prod": "2026-11-13 00:15 UTC", "staging": "2026-11-12 18:58 UTC"}} -->
 > Tenu à jour par la CI (`mairie360/CICD`, action `release/release-journal`) à chaque passage en dev, staging et prod. Ne pas modifier à la main : le fichier est réécrit au passage suivant.
 
 | Environnement | Version | Commit | Mis à jour |
 | --- | --- | --- | --- |
 | prod | v2.2.0 | `ffa2b2e` | 2026-11-13 00:15 UTC |
 | staging | — | `ffa2b2e` | 2026-11-12 18:58 UTC |
-| dev | — | `ffa2b2e` | 2026-11-04 18:18 UTC |
+| dev | — | `3dd5a0a` | 2026-11-13 06:43 UTC |
 
 ## Ajouté sur main depuis la dernière release prod (v2.2.0)
 
-_Rien._
+- chore(deps): update mairie360 database schema to v3.4.0 (#132) ([#132](https://github.com/mairie360/BFF_Dashboard/pull/132))
 
 ## Différence dev → staging (en dev, pas encore en staging)
 
-_Rien._
+- chore(deps): update mairie360 database schema to v3.4.0 (#132) ([#132](https://github.com/mairie360/BFF_Dashboard/pull/132))
 
 ## Différence staging → prod (en staging, pas encore en prod)
 
 _Rien._
+
+> Résumé Claude indisponible pour ce passage : listes brutes des commits.
 
 ## Historique des passages
 
 <!-- release-journal-history:start -->
 | Date | Environnement | Version | Commit | Run |
 | --- | --- | --- | --- | --- |
+| 2026-11-13 06:43 UTC | dev | — | `3dd5a0a` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/43379996833) |
 | 2026-11-13 00:15 UTC | prod | v2.2.0 | `ffa2b2e` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/43332308852) |
 | 2026-11-12 18:58 UTC | staging | — | `ffa2b2e` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/43284348669) |
 | 2026-11-04 18:18 UTC | dev | — | `ffa2b2e` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/41883215442) |
