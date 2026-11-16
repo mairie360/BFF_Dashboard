@@ -13,7 +13,7 @@ business mutations** — it only adapts upstream data and enforces session rules
 
 ```bash
 npm ci                      # install (use Node.js 24.22.1 to match the contracts CI job)
-npm run start               # dev server via ts-node (src/index.ts), default port 4007
+npm run start               # dev server, tsx watch src/index.ts, default port 4007 (deployed on 4004 by Deploiment)
 npm run build               # tsc -> dist/
 npm run lint                # eslint . --ext .ts   (lint:fix to autofix)
 npm test                    # jest
