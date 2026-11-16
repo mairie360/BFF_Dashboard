@@ -58,7 +58,7 @@ const TASK_PRIORITY: Record<string, z.infer<typeof Task>['priority']> = { Low: '
 const projectPublicId = (id: number) => `project-${id}`;
 const dueKey = (dueDate: string | null | undefined) => (dueDate ? Date.parse(dueDate) || Infinity : Infinity);
 
-registry.registerPath({ method: 'get', path: '/dashboard/bootstrap', responses: {
+registry.registerPath({ method: 'get', path: '/dashboard/bootstrap', summary: 'Load the dashboard of the signed-in user', responses: {
   200: { description: 'Data read from Core API, Project API and Calendar API in one parallel wave, within the session scope', content: { 'application/json': { schema: DashboardBootstrapSchema } } },
   401: { description: 'Missing or invalid session, or session refused by an upstream API', content: { 'application/json': { schema: ErrorSchema } } },
   // bffs-lib >= 2.4.0 relays an upstream 429 with its Retry-After instead of a 502 (MAIR-562).
