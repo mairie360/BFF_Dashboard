@@ -90,6 +90,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** Load the dashboard of the signed-in user */
         get: {
             parameters: {
                 query?: never;
