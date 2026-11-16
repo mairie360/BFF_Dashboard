@@ -31,6 +31,8 @@ PORT=4007
 CORE_API_URL=http://localhost:3000
 PROJECT_API_URL=http://localhost:3001
 CALENDAR_API_URL=http://localhost:3002
+# Clé publique Ed25519 de Core (MAIR-680), obligatoire : coller la clé publique du Core utilisé.
+JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n<base64 de la clé publique de Core>\n-----END PUBLIC KEY-----"
 ```
 
 ```bash
