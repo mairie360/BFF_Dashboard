@@ -1,16 +1,17 @@
 # Journal des releases — BFF_Dashboard
 
-<!-- release-journal-state {"dev": "c751c47cd2dbe44665b739459f546135b2f5607d", "prod": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "prod_tag": "v2.2.0", "staging": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "updated": {"dev": "2026-11-17 11:05 UTC", "prod": "2026-11-13 00:15 UTC", "staging": "2026-11-12 18:58 UTC"}} -->
+<!-- release-journal-state {"dev": "fc2fd6297422ab84ca22272dd04d448b677507fd", "prod": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "prod_tag": "v2.2.0", "staging": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "updated": {"dev": "2026-11-17 11:55 UTC", "prod": "2026-11-13 00:15 UTC", "staging": "2026-11-12 18:58 UTC"}} -->
 > Tenu à jour par la CI (`mairie360/CICD`, action `release/release-journal`) à chaque passage en dev, staging et prod. Ne pas modifier à la main : le fichier est réécrit au passage suivant.
 
 | Environnement | Version | Commit | Mis à jour |
 | --- | --- | --- | --- |
 | prod | v2.2.0 | `ffa2b2e` | 2026-11-13 00:15 UTC |
 | staging | — | `ffa2b2e` | 2026-11-12 18:58 UTC |
-| dev | — | `c751c47` | 2026-11-17 11:05 UTC |
+| dev | — | `fc2fd62` | 2026-11-17 11:55 UTC |
 
 ## Ajouté sur main depuis la dernière release prod (v2.2.0)
 
+- chore(deps): pin actions/checkout action to 3d3c42e (#142) ([#142](https://github.com/mairie360/BFF_Dashboard/pull/142))
 - ci: MAIR-1008 Nightly rehearsal of the promotion gates (#138) ([#138](https://github.com/mairie360/BFF_Dashboard/pull/138))
 - test: MAIR-248 Translate the BFFs' messages and the ansible documentation into English (#139) ([#139](https://github.com/mairie360/BFF_Dashboard/pull/139))
 - fix: MAIR-248 Translate the BFFs' messages and the ansible documentation into English (#136) ([#136](https://github.com/mairie360/BFF_Dashboard/pull/136))
@@ -20,6 +21,7 @@
 
 ## Différence dev → staging (en dev, pas encore en staging)
 
+- chore(deps): pin actions/checkout action to 3d3c42e (#142) ([#142](https://github.com/mairie360/BFF_Dashboard/pull/142))
 - ci: MAIR-1008 Nightly rehearsal of the promotion gates (#138) ([#138](https://github.com/mairie360/BFF_Dashboard/pull/138))
 - test: MAIR-248 Translate the BFFs' messages and the ansible documentation into English (#139) ([#139](https://github.com/mairie360/BFF_Dashboard/pull/139))
 - fix: MAIR-248 Translate the BFFs' messages and the ansible documentation into English (#136) ([#136](https://github.com/mairie360/BFF_Dashboard/pull/136))
@@ -38,6 +40,7 @@ _Rien._
 <!-- release-journal-history:start -->
 | Date | Environnement | Version | Commit | Run |
 | --- | --- | --- | --- | --- |
+| 2026-11-17 11:55 UTC | dev | — | `fc2fd62` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/44076419103) |
 | 2026-11-17 11:05 UTC | dev | — | `c751c47` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/44069328008) |
 | 2026-11-16 17:58 UTC | dev | — | `a357be4` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/43922971809) |
 | 2026-11-16 17:26 UTC | dev | — | `97a0611` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/43916612223) |
