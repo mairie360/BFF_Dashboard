@@ -1,16 +1,17 @@
 # Journal des releases — BFF_Dashboard
 
-<!-- release-journal-state {"dev": "8702db3f3fc1fc45eb5435efe1e534005cb5c36f", "prod": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "prod_tag": "v2.2.0", "staging": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "updated": {"dev": "2026-11-17 11:57 UTC", "prod": "2026-11-13 00:15 UTC", "staging": "2026-11-12 18:58 UTC"}} -->
+<!-- release-journal-state {"dev": "f17ec152ba46fd336141a39d2f5ef260f8e3b6c1", "prod": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "prod_tag": "v2.2.0", "staging": "ffa2b2eaff32b31a2166e02de18d03a4519712ed", "updated": {"dev": "2026-11-17 17:06 UTC", "prod": "2026-11-13 00:15 UTC", "staging": "2026-11-12 18:58 UTC"}} -->
 > Tenu à jour par la CI (`mairie360/CICD`, action `release/release-journal`) à chaque passage en dev, staging et prod. Ne pas modifier à la main : le fichier est réécrit au passage suivant.
 
 | Environnement | Version | Commit | Mis à jour |
 | --- | --- | --- | --- |
 | prod | v2.2.0 | `ffa2b2e` | 2026-11-13 00:15 UTC |
 | staging | — | `ffa2b2e` | 2026-11-12 18:58 UTC |
-| dev | — | `8702db3` | 2026-11-17 11:57 UTC |
+| dev | — | `f17ec15` | 2026-11-17 17:06 UTC |
 
 ## Ajouté sur main depuis la dernière release prod (v2.2.0)
 
+- test: MAIR-538 Add cross-cutting timeout, 413 and token-refusal tests to the BFFs and the template ([#144](https://github.com/mairie360/BFF_Dashboard/pull/144))
 - feat: MAIR-998 Test stacks follow the moving upstream tag of the stage (#141) ([#141](https://github.com/mairie360/BFF_Dashboard/pull/141))
 - chore(deps): pin actions/checkout action to 3d3c42e (#142) ([#142](https://github.com/mairie360/BFF_Dashboard/pull/142))
 - ci: MAIR-1008 Nightly rehearsal of the promotion gates (#138) ([#138](https://github.com/mairie360/BFF_Dashboard/pull/138))
@@ -22,6 +23,7 @@
 
 ## Différence dev → staging (en dev, pas encore en staging)
 
+- test: MAIR-538 Add cross-cutting timeout, 413 and token-refusal tests to the BFFs and the template ([#144](https://github.com/mairie360/BFF_Dashboard/pull/144))
 - feat: MAIR-998 Test stacks follow the moving upstream tag of the stage (#141) ([#141](https://github.com/mairie360/BFF_Dashboard/pull/141))
 - chore(deps): pin actions/checkout action to 3d3c42e (#142) ([#142](https://github.com/mairie360/BFF_Dashboard/pull/142))
 - ci: MAIR-1008 Nightly rehearsal of the promotion gates (#138) ([#138](https://github.com/mairie360/BFF_Dashboard/pull/138))
@@ -42,6 +44,7 @@ _Rien._
 <!-- release-journal-history:start -->
 | Date | Environnement | Version | Commit | Run |
 | --- | --- | --- | --- | --- |
+| 2026-11-17 17:06 UTC | dev | — | `f17ec15` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/44131604138) |
 | 2026-11-17 11:57 UTC | dev | — | `8702db3` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/44076714899) |
 | 2026-11-17 11:55 UTC | dev | — | `fc2fd62` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/44076419103) |
 | 2026-11-17 11:05 UTC | dev | — | `c751c47` | [run](https://github.com/mairie360/BFF_Dashboard/actions/runs/44069328008) |
