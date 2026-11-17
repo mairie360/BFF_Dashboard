@@ -46,7 +46,7 @@ x-api-env: &api-env
 services:
   postgres:
     image: ${DB_IMAGE:-ghcr.io/mairie360/database:${UPSTREAM_TAG:-dev}}
-    pull_policy: always
+    pull_policy: ${UPSTREAM_PULL_POLICY:-always}
     container_name: bff-dashboard-sec-db
     environment:
       POSTGRES_USER: postgres
@@ -67,7 +67,7 @@ services:
   liquibase:
     # Database >= MAIR-413 only seeds the template admin (users.id = 1) with -Dallow_template_admin=true.
     image: ${LIQUIBASE_IMAGE:-ghcr.io/mairie360/liquibase-migrations:${UPSTREAM_TAG:-dev}}
-    pull_policy: always
+    pull_policy: ${UPSTREAM_PULL_POLICY:-always}
     container_name: bff-dashboard-sec-liquibase
     depends_on:
       postgres:
@@ -116,7 +116,7 @@ services:
 
   core-api:
     image: ${CORE_API_IMAGE:-ghcr.io/mairie360/core-api:${UPSTREAM_TAG:-dev}}
-    pull_policy: always
+    pull_policy: ${UPSTREAM_PULL_POLICY:-always}
     container_name: bff-dashboard-sec-core-api
     depends_on:
       liquibase:
@@ -156,7 +156,7 @@ services:
 
   project-api:
     image: ${PROJECT_API_IMAGE:-ghcr.io/mairie360/project-api:${UPSTREAM_TAG:-dev}}
-    pull_policy: always
+    pull_policy: ${UPSTREAM_PULL_POLICY:-always}
     container_name: bff-dashboard-sec-project-api
     depends_on:
       liquibase:
@@ -186,7 +186,7 @@ services:
 
   calendar-api:
     image: ${CALENDAR_API_IMAGE:-ghcr.io/mairie360/calendar-api:${UPSTREAM_TAG:-dev}}
-    pull_policy: always
+    pull_policy: ${UPSTREAM_PULL_POLICY:-always}
     container_name: bff-dashboard-sec-calendar-api
     depends_on:
       liquibase:
