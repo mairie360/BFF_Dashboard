@@ -557,6 +557,32 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'unavailable' });
     });
 
+    test('MAIR-537 an unreachable Project API degrades projects and tasks instead of failing', async () => {
+      mockUpstreams({ events: [eventView(1)] });
+      process.env.PROJECT_API_URL = await unreachableUrl();
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      expect(response.body.events).toHaveLength(1);
+      expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'unavailable', calendar: 'available' });
+    });
+
+    test.each([
+      ['PROJECT_API_URL', { projects: 'unavailable', tasks: 'unavailable', calendar: 'available' }],
+      ['CALENDAR_API_URL', { projects: 'available', tasks: 'available', calendar: 'unavailable' }],
+    ])('MAIR-537 %s not configured degrades only its sections, never an empty 200 pretending they are available', async (variable, sources) => {
+      mockUpstreams({ projects: [projectListItem(1)] });
+      delete process.env[variable];
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      expect(response.body.sources).toEqual(sources);
+    });
+
     test('an unreachable Calendar API degrades the calendar section instead of failing', async () => {
       mockUpstreams({ projects: [projectListItem(1)] });
       process.env.CALENDAR_API_URL = await unreachableUrl();
