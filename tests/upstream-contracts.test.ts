@@ -3,8 +3,8 @@ import path from 'node:path';
 import type { JsonSchema, OpenApiContract } from './support/openapi-contract';
 import { loadOrvalContract, resolveOrvalPackage } from './support/orval-contract';
 import {
-  calendarApiUrls, calendarResult, coreApiUrls, coreMe, eventView, projectApiUrls, projectListItem, projectsResult, taskListItem,
-  taskListResult,
+  calendarApiUrls, calendarResult, catalogFormation, catalogResult, coreApiUrls, coreMe, elearningApiUrls, eventView, projectApiUrls,
+  projectListItem, projectsResult, taskListItem, taskListResult,
 } from './support/upstream-fixtures';
 
 // The API contracts (and the last published dashboard contract) are rebuilt from the installed @mairie360/*-openapi
@@ -14,12 +14,14 @@ const PACKAGES = [
   '@mairie360/core-api-openapi',
   '@mairie360/project-api-openapi',
   '@mairie360/calendar-api-openapi',
+  '@mairie360/elearning-api-openapi',
   '@mairie360/bff-dashboard-openapi',
 ] as const;
 
 const core = loadOrvalContract('@mairie360/core-api-openapi');
 const project = loadOrvalContract('@mairie360/project-api-openapi');
 const calendar = loadOrvalContract('@mairie360/calendar-api-openapi');
+const elearning = loadOrvalContract('@mairie360/elearning-api-openapi');
 const packageJson = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')) as Record<string, Record<string, string>>;
 
 // API operations actually consumed by /dashboard/bootstrap and /check_apis, addressed through the URL helpers of the
@@ -32,6 +34,7 @@ const CONSUMED = [
   { contract: project, operationId: 'health', method: 'get', url: projectApiUrls.getHealthUrl() },
   { contract: calendar, operationId: 'getCalendar', method: 'get', url: calendarApiUrls.getGetCalendarUrl({ start: '2026-09-01T00:00:00Z', end: '2026-09-30T00:00:00Z' }) },
   { contract: calendar, operationId: 'health', method: 'get', url: calendarApiUrls.getHealthUrl() },
+  { contract: elearning, operationId: 'getMyCatalog', method: 'get', url: elearningApiUrls.getGetMyCatalogUrl() },
 ] as const;
 
 function responseSchema(contract: OpenApiContract, method: string, url: string, status: number): JsonSchema {
@@ -70,6 +73,7 @@ describe('upstream fixtures conform to the upstream contracts', () => {
     ['Project getProjects 200', project, projectApiUrls.getGetProjectsUrl(), projectsResult([projectListItem(1, { tasks_total: 3, tasks_completed: 1 })], 12)],
     ['Project getTasks 200', project, projectApiUrls.getGetTasksUrl(), taskListResult([taskListItem(1), taskListItem(2, { project_id: 3, assigned_to: 2 })], 14)],
     ['Calendar getCalendar 200', calendar, calendarApiUrls.getGetCalendarUrl({ start: '', end: '' }), calendarResult([eventView(1), eventView(2, { location: 'Mairie' })])],
+    ['ELearning getMyCatalog 200', elearning, elearningApiUrls.getGetMyCatalogUrl(), catalogResult([catalogFormation(1, 'InProgress', 1, 3), catalogFormation(2, 'NotStarted')])],
   ] as const)('%s', (_name, contract, url, body) => {
     expect(contract.validate(responseSchema(contract, 'get', url, 200), JSON.parse(JSON.stringify(body)))).toEqual([]);
   });

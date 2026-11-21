@@ -265,13 +265,79 @@
                   "available",
                   "unavailable"
                 ]
+              },
+              "trainings": {
+                "type": "string",
+                "enum": [
+                  "available",
+                  "unavailable"
+                ]
               }
             },
             "required": [
               "projects",
               "tasks",
-              "calendar"
+              "calendar",
+              "trainings"
             ]
+          },
+          "userLastName": {
+            "type": "string",
+            "description": "Last name from Core API (empty string when it has none)"
+          },
+          "userRole": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Role of the user: Core's profile, else the `role` claim of the token; null when neither has one"
+          },
+          "communeName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the municipality of the instance (`MAIRIE_NAME`), null when not configured"
+          },
+          "trainings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "todo",
+                    "in-progress",
+                    "done"
+                  ]
+                },
+                "completedModules": {
+                  "type": "integer"
+                },
+                "totalModules": {
+                  "type": "integer"
+                },
+                "progress": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "status",
+                "completedModules",
+                "totalModules",
+                "progress"
+              ]
+            },
+            "description": "The first 3 trainings of the user from ELearning API: unfinished first (in progress, then to do), then done"
           }
         },
         "required": [
@@ -280,7 +346,11 @@
           "tasks",
           "events",
           "metrics",
-          "sources"
+          "sources",
+          "userLastName",
+          "userRole",
+          "communeName",
+          "trainings"
         ]
       }
     },
@@ -337,7 +407,7 @@
         "summary": "Load the dashboard of the signed-in user",
         "responses": {
           "200": {
-            "description": "Data read from Core API, Project API and Calendar API in one parallel wave, within the session scope",
+            "description": "Data read from Core API, Project API, Calendar API and ELearning API in one parallel wave, within the session scope",
             "content": {
               "application/json": {
                 "schema": {

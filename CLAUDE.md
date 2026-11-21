@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `bff-dashboard` is a Backend-for-Frontend for the Mairie360 Dashboard screens (web service:
-`mairie360/Dashboard_Web_Service`). It aggregates read-only data from three APIs (Core,
-Project, Calendar) into one `/dashboard/bootstrap` payload. It **never calls another BFF** (MAIR-525). It has **no database and performs no
+`mairie360/Dashboard_Web_Service`). It aggregates read-only data from four APIs (Core,
+Project, Calendar, ELearning) into one `/dashboard/bootstrap` payload. It **never calls another BFF** (MAIR-525). It has **no database and performs no
 business mutations** — it only adapts upstream data and enforces session rules.
 
 ## Commands
@@ -90,7 +90,13 @@ wave**: Core `GET /api/v1/user/me/` (first name; failure blocks the whole respon
 Project `GET /api/v1/tasks/?limit=8` (the first active tasks across every visible project, soonest due first, with
 `assigned_to=<caller>` unless the caller manages tasks; a token without the `role` claim waits for Core's profile
 before this call), and Calendar `GET /api/v1/calendar?start=&end=` (next 30 days of the `Europe/Paris`
-calendar, `parisDateWindow(30)` converted with the lib's `wallClockToUtc`; event times shown with `utcToWallClock`).
+calendar, `parisDateWindow(30)` converted with the lib's `wallClockToUtc`; event times shown with `utcToWallClock`),
+and ELearning API `GET /api/v1/formations/catalog/` (MAIR-825: the caller's trainings, `training-<id>`, `Error` ones skipped,
+unfinished first then done, capped at 3). MAIR-825 also adds `userLastName` (Core `last_name`), `userRole` (Core's `role`,
+else the token's `role` claim, `null` when neither) and `communeName` (`MAIRIE_NAME`, trimmed, `null` when unset). Only
+additive fields: existing ones keep their shape. `ELEARNING_API_URL` and `MAIRIE_NAME` are **optional** and not in
+`UPSTREAM_SERVICES` (deployments do not set them yet): an unset ELearning URL degrades to `sources.trainings =
+"unavailable"`; `/check_apis` does not probe ELearning API.
 MAIR-563: tasks are sorted by due date (none last) before the cap; Calendar API lists a recurring event once with
 the start of its series, so `src/occurrences.ts` (`nextOccurrence`) shows its next repetition (same rule as the
 calendar front: daily / weekly from the Monday of the first week on `days_of_week` / monthly on the same day,
@@ -101,7 +107,7 @@ the token (`sessionRole`, MAIR-529) or Core's profile for a token without it. A 
 any other upstream failure degrades that section to `sources.<x> = "unavailable"` and
 `metrics.totalProjects = null` rather than inventing data; an unusable event is skipped. Output is capped at 6
 projects / 8 tasks / 6 events. The upstream-mock tests check the single wave (arrival times) and a constant number
-of calls (4) for 1, 6 and 100 visible projects.
+of calls (5) for 1, 6 and 100 visible projects.
 
 ### Telemetry (MAIR-504)
 
@@ -204,7 +210,7 @@ MAIR-474: both scripts source `stack_secrets.sh` (a fresh Ed25519 key pair per r
 ## Environment
 
 Copy `.env.example` to `.env`: `PORT` (default 4007), `CORE_API_URL`, `PROJECT_API_URL`,
-`CALENDAR_API_URL`, `JWT_PUBLIC_KEY` (required, Core's Ed25519 public key, MAIR-680; `JWT_SECRET` only during the HS256 transition). Optional `*_API_PORT` counterparts.
+`CALENDAR_API_URL`, `JWT_PUBLIC_KEY` (required, Core's Ed25519 public key, MAIR-680; `JWT_SECRET` only during the HS256 transition). Optional `*_API_PORT` counterparts, and the optional `ELEARNING_API_URL` and `MAIRIE_NAME` (MAIR-825; the Deploiment chart should set them).
 
 ## Logs (MAIR-531)
 
