@@ -461,6 +461,18 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       ]);
     });
 
+    test.each([['not-a-date'], ['2026-02-30'], ['15/12/2026'], ['2026-12-15T00:00:00Z'], ['']])(
+      'MAIR-1110: an unusable deadline %p is relayed as no due date', async (deadline) => {
+        mockUpstreams({ trainings: [catalogFormation(1, 'InProgress', 1, 2, { deadline })] });
+
+        const response = await bootstrap();
+
+        expect(response.status).toBe(200);
+        expectDashboardContract(response);
+        expect(response.body.trainings[0].dueDate).toBeNull();
+      },
+    );
+
     test('no training yields an available empty section', async () => {
       mockUpstreams();
 

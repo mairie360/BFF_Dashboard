@@ -81,6 +81,12 @@ const TRAINING_STATUS: Record<string, z.infer<typeof Training>['status']> = { No
 // Unfinished first (in progress, then to do), then done; inside each, soonest due date first (none last), then ELearning API's order (by id).
 const TRAINING_ORDER: Record<z.infer<typeof Training>['status'], number> = { 'in-progress': 0, todo: 1, done: 2 };
 const projectPublicId = (id: number) => `project-${id}`;
+// A training deadline is a calendar date (`YYYY-MM-DD`); anything else is dropped rather than relayed (MAIR-1110).
+const calendarDate = (value: string | null | undefined): string | null => {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value ? value : null;
+};
 const dueKey = (dueDate: string | null | undefined) => (dueDate ? Date.parse(dueDate) || Infinity : Infinity);
 
 registry.registerPath({ method: 'get', path: '/dashboard/bootstrap', summary: 'Load the dashboard of the signed-in user', responses: {
@@ -193,7 +199,7 @@ router.get('/bootstrap', async (req, res) => {
       const completedModules = formation.modules.filter((module) => module.completed).length;
       const totalModules = formation.modules.length;
       const progress = status === 'done' ? 100 : totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0;
-      const dueDate = formation.deadline ?? null;
+      const dueDate = calendarDate(formation.deadline);
       return [{ id: `training-${formation.id}`, title: formation.name, status, completedModules, totalModules, progress, dueDate }];
     }).sort((a, b) => TRAINING_ORDER[a.status] - TRAINING_ORDER[b.status] || dueKey(a.dueDate) - dueKey(b.dueDate))
     : [];
