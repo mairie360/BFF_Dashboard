@@ -210,7 +210,7 @@ MAIR-474: both scripts source `stack_secrets.sh` (a fresh Ed25519 key pair per r
 ## Environment
 
 Copy `.env.example` to `.env`: `PORT` (default 4007), `CORE_API_URL`, `PROJECT_API_URL`,
-`CALENDAR_API_URL`, `JWT_PUBLIC_KEY` (required, Core's Ed25519 public key, MAIR-680; `JWT_SECRET` only during the HS256 transition). Optional `*_API_PORT` counterparts, and the optional `ELEARNING_API_URL` and `MAIRIE_NAME` (MAIR-825; the Deploiment chart should set them).
+`CALENDAR_API_URL`, `JWT_PUBLIC_KEY` (required, Core's Ed25519 public key, MAIR-680; `JWT_SECRET` only during the HS256 transition). Optional `*_API_PORT` counterparts, and the optional `ELEARNING_API_URL`, `MESSAGE_API_URL` (MAIR-1106) and `MAIRIE_NAME` (MAIR-825; the Deploiment chart should set them).
 
 ## Logs (MAIR-531)
 
