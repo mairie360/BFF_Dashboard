@@ -272,13 +272,21 @@
                   "available",
                   "unavailable"
                 ]
+              },
+              "messages": {
+                "type": "string",
+                "enum": [
+                  "available",
+                  "unavailable"
+                ]
               }
             },
             "required": [
               "projects",
               "tasks",
               "calendar",
-              "trainings"
+              "trainings",
+              "messages"
             ]
           },
           "userLastName": {
@@ -326,6 +334,13 @@
                 },
                 "progress": {
                   "type": "number"
+                },
+                "dueDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Date the training should be completed by (YYYY-MM-DD), null when it has none"
                 }
               },
               "required": [
@@ -334,10 +349,19 @@
                 "status",
                 "completedModules",
                 "totalModules",
-                "progress"
+                "progress",
+                "dueDate"
               ]
             },
-            "description": "The first 3 trainings of the user from ELearning API: unfinished first (in progress, then to do), then done"
+            "description": "The first 3 trainings of the user from ELearning API: unfinished first (in progress, then to do), then done; soonest due date first inside each group, none last"
+          },
+          "unreadMessages": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Unread messages of the user over their chats (Message API), for the Messagerie badge; null when Message API is unavailable (`sources.messages`)"
           }
         },
         "required": [
@@ -350,7 +374,8 @@
           "userLastName",
           "userRole",
           "communeName",
-          "trainings"
+          "trainings",
+          "unreadMessages"
         ]
       }
     },
@@ -407,7 +432,7 @@
         "summary": "Load the dashboard of the signed-in user",
         "responses": {
           "200": {
-            "description": "Data read from Core API, Project API, Calendar API and ELearning API in one parallel wave, within the session scope",
+            "description": "Data read from Core API, Project API, Calendar API, ELearning API and Message API in one parallel wave, within the session scope",
             "content": {
               "application/json": {
                 "schema": {

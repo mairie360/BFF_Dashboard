@@ -25,12 +25,14 @@ const coreApi = new ContractMockServer('CORE_API', loadOrvalContract('@mairie360
 const projectApi = new ContractMockServer('PROJECT_API', loadOrvalContract('@mairie360/project-api-openapi'));
 const calendarApi = new ContractMockServer('CALENDAR_API', loadOrvalContract('@mairie360/calendar-api-openapi'));
 const elearningApi = new ContractMockServer('ELEARNING_API', loadOrvalContract('@mairie360/elearning-api-openapi'));
-const mocks = [coreApi, projectApi, calendarApi, elearningApi];
+const messageApi = new ContractMockServer('MESSAGE_API', loadOrvalContract('@mairie360/message-api-openapi'));
+const mocks = [coreApi, projectApi, calendarApi, elearningApi, messageApi];
 // Templates of the upstream contracts (mock keys); the concrete expected paths come from the URL helpers.
 const CORE = { me: '/api/v1/user/me/' } as const;
 const PROJECT = { projects: '/api/v1/projects/', tasks: '/api/v1/tasks/' } as const;
 const CALENDAR = { calendar: '/api/v1/calendar' } as const;
 const ELEARNING = { catalog: '/api/v1/formations/catalog/' } as const;
+const MESSAGE = { unread: '/api/v1/unread/' } as const;
 // Current dashboard contract (documented statuses) and last published contract, used by the clients.
 const dashboardContract = OpenApiContract.load(path.join(__dirname, '..', 'contracts', 'openapi.json'));
 const publishedDashboardContract = loadOrvalContract('@mairie360/bff-dashboard-openapi');
@@ -64,9 +66,9 @@ afterEach(() => {
 
 type Scenario = {
   projects?: ProjectListItemView[]; totalProjects?: number; tasks?: TaskListItemView[]; events?: EventView[];
-  roles?: string[]; trainings?: CatalogFormation[]; delayMs?: number;
+  roles?: string[]; trainings?: CatalogFormation[]; unread?: number; delayMs?: number;
 };
-function mockUpstreams({ projects = [], totalProjects, tasks = [], events = [], roles = ['User'], trainings = [], delayMs }: Scenario = {}) {
+function mockUpstreams({ projects = [], totalProjects, tasks = [], events = [], roles = ['User'], trainings = [], unread = 0, delayMs }: Scenario = {}) {
   coreApi.on('get', CORE.me, { body: coreMe({ roles, role: roles[0] ?? '' }), delayMs });
   projectApi.on('get', PROJECT.projects, { body: projectsResult(projects, totalProjects), delayMs });
   // Like Project API: the active tasks of every visible project (`tasks` holds those), `assigned_to` and `limit`.
@@ -77,6 +79,7 @@ function mockUpstreams({ projects = [], totalProjects, tasks = [], events = [], 
   });
   calendarApi.on('get', CALENDAR.calendar, { body: calendarResult(events), delayMs });
   elearningApi.on('get', ELEARNING.catalog, { body: catalogResult(trainings), delayMs });
+  messageApi.on('get', MESSAGE.unread, { body: { unread_count: unread, unread_chats: unread > 0 ? 1 : 0 }, delayMs });
 }
 
 const bootstrap = (authorization: string | null = SESSION) => {
@@ -108,6 +111,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
         // 07:00Z is 09:00 in Paris (CEST).
         events: [eventView(9, { name: 'Conseil', start: '2026-09-18T07:00:00Z', location: 'Mairie' })],
         trainings: [catalogFormation(5, 'InProgress', 1, 3, { name: 'Accueil du public' })],
+        unread: 4,
       });
 
       const response = await bootstrap();
@@ -121,11 +125,12 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
         tasks: [{ id: 'task-2', title: 'Validation', dueDate: '2026-11-01T00:00:00Z', priority: 'high', completed: false, projectId: 'project-7' }],
         events: [{ id: 9, title: 'Conseil', date: '2026-09-18', startTime: '09:00', location: 'Mairie' }],
         metrics: { totalProjects: 17 },
-        sources: { projects: 'available', tasks: 'available', calendar: 'available', trainings: 'available' },
+        sources: { projects: 'available', tasks: 'available', calendar: 'available', trainings: 'available', messages: 'available' },
         userLastName: 'Martin',
         userRole: 'User',
         communeName: null,
-        trainings: [{ id: 'training-5', title: 'Accueil du public', status: 'in-progress', completedModules: 1, totalModules: 3, progress: 33 }],
+        trainings: [{ id: 'training-5', title: 'Accueil du public', status: 'in-progress', completedModules: 1, totalModules: 3, progress: 33, dueDate: null }],
+        unreadMessages: 4,
       });
       expect(response.headers['cache-control']).toBe('no-store');
     });
@@ -160,7 +165,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(Math.abs(end - start - (31 * DAY_MS - 1000))).toBeLessThanOrEqual(3_600_000);
     });
 
-    test('MAIR-525/MAIR-557/MAIR-825: the profile, the projects, the tasks, the events and the trainings start in one parallel wave', async () => {
+    test('MAIR-525/MAIR-557/MAIR-825/MAIR-1106: the profile, the projects, the tasks, the events, the trainings and the unread total start in one parallel wave', async () => {
       mockUpstreams({ projects: [projectListItem(1)] });
       // Each answer takes 80 ms: calls chained one after the other would arrive at least 80 ms apart.
       const arrivals: number[] = [];
@@ -170,12 +175,13 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       projectApi.on('get', PROJECT.tasks, () => slow(taskListResult([])));
       calendarApi.on('get', CALENDAR.calendar, () => slow(calendarResult([])));
       elearningApi.on('get', ELEARNING.catalog, () => slow(catalogResult([])));
+      messageApi.on('get', MESSAGE.unread, () => slow({ unread_count: 0, unread_chats: 0 }));
 
       // The role is in the token (MAIR-529): the tasks do not wait for Core's profile.
       const response = await bootstrap(withClaims({ role: 'User' }));
 
       expect(response.status).toBe(200);
-      expect(arrivals).toHaveLength(5);
+      expect(arrivals).toHaveLength(6);
       expect(Math.max(...arrivals) - Math.min(...arrivals)).toBeLessThan(60);
     });
 
@@ -204,10 +210,10 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
         return upstreamCalls();
       };
 
-      // Profile, projects, tasks, events and trainings: one call each, whatever the number of projects.
-      expect(await count(1)).toBe(5);
-      expect(await count(6)).toBe(5);
-      expect(await count(100)).toBe(5);
+      // Profile, projects, tasks, events, trainings and unread messages: one call each, whatever the number of projects.
+      expect(await count(1)).toBe(6);
+      expect(await count(6)).toBe(6);
+      expect(await count(100)).toBe(6);
     });
 
     test.each([
@@ -337,7 +343,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.status).toBe(200);
       expectDashboardContract(response);
       expect(response.body).toMatchObject({ projects: [], tasks: [], events: [], metrics: { totalProjects: 0 } });
-      expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'available', trainings: 'available' });
+      expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'available', trainings: 'available', messages: 'available' });
     });
   });
 
@@ -408,9 +414,9 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expectDashboardContract(response);
       expect(response.body.sources.trainings).toBe('available');
       expect(response.body.trainings).toEqual([
-        { id: 'training-4', title: 'Urbanisme', status: 'in-progress', completedModules: 2, totalModules: 3, progress: 67 },
-        { id: 'training-6', title: 'En cours sans module', status: 'in-progress', completedModules: 0, totalModules: 0, progress: 0 },
-        { id: 'training-2', title: 'Accueil', status: 'todo', completedModules: 0, totalModules: 4, progress: 0 },
+        { id: 'training-4', title: 'Urbanisme', status: 'in-progress', completedModules: 2, totalModules: 3, progress: 67, dueDate: null },
+        { id: 'training-6', title: 'En cours sans module', status: 'in-progress', completedModules: 0, totalModules: 0, progress: 0, dueDate: null },
+        { id: 'training-2', title: 'Accueil', status: 'todo', completedModules: 0, totalModules: 4, progress: 0, dueDate: null },
       ]);
     });
 
@@ -428,10 +434,44 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.status).toBe(200);
       expectDashboardContract(response);
       expect(response.body.trainings).toEqual([
-        { id: 'training-3', title: 'À faire', status: 'todo', completedModules: 0, totalModules: 1, progress: 0 },
-        { id: 'training-1', title: 'Terminée', status: 'done', completedModules: 1, totalModules: 2, progress: 100 },
+        { id: 'training-3', title: 'À faire', status: 'todo', completedModules: 0, totalModules: 1, progress: 0, dueDate: null },
+        { id: 'training-1', title: 'Terminée', status: 'done', completedModules: 1, totalModules: 2, progress: 100, dueDate: null },
       ]);
     });
+
+    test('MAIR-1110: relays the deadline as dueDate and sorts each status group soonest due first, none last', async () => {
+      mockUpstreams({
+        trainings: [
+          catalogFormation(1, 'InProgress', 1, 2, { name: 'Sans échéance' }),
+          catalogFormation(2, 'InProgress', 1, 2, { name: 'Décembre', deadline: '2026-12-15' }),
+          catalogFormation(3, 'InProgress', 1, 2, { name: 'Octobre', deadline: '2026-10-01' }),
+          catalogFormation(4, 'NotStarted', 0, 2, { name: 'À faire bientôt', deadline: '2026-09-20' }),
+        ],
+      });
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      // In progress before to do whatever the dates; inside, the soonest deadline first, none last; capped at 3.
+      expect(response.body.trainings.map((t: { id: string; dueDate: string | null }) => [t.id, t.dueDate])).toEqual([
+        ['training-3', '2026-10-01'],
+        ['training-2', '2026-12-15'],
+        ['training-1', null],
+      ]);
+    });
+
+    test.each([['not-a-date'], ['2026-02-30'], ['15/12/2026'], ['2026-12-15T00:00:00Z'], ['']])(
+      'MAIR-1110: an unusable deadline %p is relayed as no due date', async (deadline) => {
+        mockUpstreams({ trainings: [catalogFormation(1, 'InProgress', 1, 2, { deadline })] });
+
+        const response = await bootstrap();
+
+        expect(response.status).toBe(200);
+        expectDashboardContract(response);
+        expect(response.body.trainings[0].dueDate).toBeNull();
+      },
+    );
 
     test('no training yields an available empty section', async () => {
       mockUpstreams();
@@ -461,7 +501,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.body.trainings).toEqual([]);
       expect(response.body.projects).toHaveLength(1);
       expect(response.body.events).toHaveLength(1);
-      expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'available', trainings: 'unavailable' });
+      expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'available', trainings: 'unavailable', messages: 'available' });
     });
 
     test('ELEARNING_API_URL not configured calls no ELearning API and keeps the other calls', async () => {
@@ -472,7 +512,53 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
 
       expect(response.status).toBe(200);
       expect(elearningApi.requests).toHaveLength(0);
-      expect(upstreamCalls()).toBe(4);
+      expect(upstreamCalls()).toBe(5);
+    });
+  });
+
+  describe('MAIR-1106 unread messages for the Messagerie badge', () => {
+    test("relays the caller's unread total from Message API with the session", async () => {
+      mockUpstreams({ unread: 12 });
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      expect(response.body.unreadMessages).toBe(12);
+      expect(response.body.sources.messages).toBe('available');
+      const [call] = messageApi.calls(MESSAGE.unread);
+      expect(call.headers.authorization).toBe(SESSION);
+    });
+
+    test('no unread message is an available 0, not an unavailable badge', async () => {
+      mockUpstreams();
+
+      const response = await bootstrap();
+
+      expect(response.body.unreadMessages).toBe(0);
+      expect(response.body.sources.messages).toBe('available');
+    });
+
+    test.each([
+      ['a 500', () => { messageApi.on('get', MESSAGE.unread, textError(500, 'Erreur serveur')); }],
+      ['an undeclared 403', () => { messageApi.on('get', MESSAGE.unread, textError(403, 'Interdit')); }],
+      ['a body without the count', () => { messageApi.on('get', MESSAGE.unread, { body: { total: 3 }, outOfContract: true }); }],
+      ['a negative count', () => { messageApi.on('get', MESSAGE.unread, { body: { unread_count: -1, unread_chats: 0 }, outOfContract: true }); }],
+      ['an unreachable Message API', async () => { process.env.MESSAGE_API_URL = await unreachableUrl(); }],
+      ['MESSAGE_API_URL not configured', () => { delete process.env.MESSAGE_API_URL; }],
+      ['an invalid MESSAGE_API_URL', () => { process.env.MESSAGE_API_URL = 'http://bad host'; }],
+    ])('%s from Message API leaves the badge out and keeps every other section', async (_label, override) => {
+      mockUpstreams({ projects: [projectListItem(1)], events: [eventView(1)], trainings: [catalogFormation(1, 'InProgress', 1, 2)], unread: 5 });
+      await override();
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      expect(response.body.unreadMessages).toBeNull();
+      expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'available', trainings: 'available', messages: 'unavailable' });
+      expect(response.body.projects).toHaveLength(1);
+      expect(response.body.trainings).toHaveLength(1);
     });
   });
 
@@ -532,6 +618,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       ['the Project API task list', () => projectApi.on('get', PROJECT.tasks, textError(401, 'Jeton expiré'))],
       ['Calendar API', () => calendarApi.on('get', CALENDAR.calendar, textError(401, 'Jeton expiré'))],
       ['ELearning API (MAIR-825)', () => elearningApi.on('get', ELEARNING.catalog, textError(401, 'Jeton expiré'))],
+      ['Message API (MAIR-1106)', () => messageApi.on('get', MESSAGE.unread, textError(401, 'Jeton expiré'))],
     ])('propagates a 401 from %s even when the other sources succeed', async (_label, override) => {
       mockUpstreams({ projects: [projectListItem(1)] });
       override();
@@ -672,7 +759,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
-      expect(mocks.map((mock) => mock.requests.length)).toEqual([1, 2, 1, 1]);
+      expect(mocks.map((mock) => mock.requests.length)).toEqual([1, 2, 1, 1, 1]);
     });
   });
 
@@ -688,7 +775,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.body).toMatchObject({ projects: [], metrics: { totalProjects: null } });
       expect(response.body.tasks).toHaveLength(1);
       expect(response.body.events).toHaveLength(1);
-      expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'available', calendar: 'available', trainings: 'available' });
+      expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'available', calendar: 'available', trainings: 'available', messages: 'available' });
     });
 
     test.each([500, 502])('a %i from Calendar API marks only the calendar unavailable', async (status) => {
@@ -702,7 +789,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.body.events).toEqual([]);
       expect(response.body.projects).toHaveLength(1);
       expect(response.body.tasks).toHaveLength(1);
-      expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'unavailable', trainings: 'available' });
+      expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'unavailable', trainings: 'available', messages: 'available' });
     });
 
     test('MAIR-537 an unreachable Project API degrades projects and tasks instead of failing', async () => {
@@ -714,12 +801,12 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.status).toBe(200);
       expectDashboardContract(response);
       expect(response.body.events).toHaveLength(1);
-      expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'unavailable', calendar: 'available', trainings: 'available' });
+      expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'unavailable', calendar: 'available', trainings: 'available', messages: 'available' });
     });
 
     test.each([
-      ['PROJECT_API_URL', { projects: 'unavailable', tasks: 'unavailable', calendar: 'available', trainings: 'available' }],
-      ['CALENDAR_API_URL', { projects: 'available', tasks: 'available', calendar: 'unavailable', trainings: 'available' }],
+      ['PROJECT_API_URL', { projects: 'unavailable', tasks: 'unavailable', calendar: 'available', trainings: 'available', messages: 'available' }],
+      ['CALENDAR_API_URL', { projects: 'available', tasks: 'available', calendar: 'unavailable', trainings: 'available', messages: 'available' }],
     ])('MAIR-537 %s not configured degrades only its sections, never an empty 200 pretending they are available', async (variable, sources) => {
       mockUpstreams({ projects: [projectListItem(1)] });
       delete process.env[variable];
@@ -739,7 +826,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
 
       expect(response.status).toBe(200);
       expectDashboardContract(response);
-      expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'unavailable', trainings: 'available' });
+      expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'unavailable', trainings: 'available', messages: 'available' });
     });
 
     test.each<[string, MockReply]>([
@@ -755,7 +842,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expectDashboardContract(response);
       expect(response.body.tasks).toEqual([]);
       expect(response.body.projects).toHaveLength(1);
-      expect(response.body.sources).toEqual({ projects: 'available', tasks: 'unavailable', calendar: 'available', trainings: 'available' });
+      expect(response.body.sources).toEqual({ projects: 'available', tasks: 'unavailable', calendar: 'available', trainings: 'available', messages: 'available' });
     });
 
     test('a payload rejected by the dashboard parser degrades the section without inventing data', async () => {
@@ -767,7 +854,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.status).toBe(200);
       expectDashboardContract(response);
       expect(response.body).toMatchObject({ projects: [], tasks: [], metrics: { totalProjects: null } });
-      expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'available', calendar: 'available', trainings: 'available' });
+      expect(response.body.sources).toEqual({ projects: 'unavailable', tasks: 'available', calendar: 'available', trainings: 'available', messages: 'available' });
     });
 
     test('skips an unusable calendar event but keeps the calendar available', async () => {

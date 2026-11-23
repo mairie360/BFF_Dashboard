@@ -33,6 +33,7 @@ PROJECT_API_URL=http://localhost:3001
 CALENDAR_API_URL=http://localhost:3002
 # Optional (MAIR-825): trainings source and municipality name.
 # ELEARNING_API_URL=http://localhost:3004
+# MESSAGE_API_URL=http://localhost:3003
 # MAIRIE_NAME=Saint-Denis
 # Core's Ed25519 public key (MAIR-680), required: paste the public key of the Core you run against.
 JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n<base64 of Core's public key>\n-----END PUBLIC KEY-----"
@@ -63,6 +64,7 @@ Values below are local examples or explicitly described behavior, not production
 | `PROJECT_API_URL` | http://localhost:3001 | Project and task source; required (startup fails without it). |
 | `CALENDAR_API_URL` | http://localhost:3002 | Event source; required (startup fails without it). |
 | `ELEARNING_API_URL` | unset | Trainings source (MAIR-825); **optional**: startup does not check it, and when it is unset, invalid or unreachable `sources.trainings` is `unavailable` and `trainings` is empty. The Deploiment chart should set it. |
+| `MESSAGE_API_URL` | unset | Unread messages of the Messagerie badge (`GET /api/v1/unread/`, MAIR-1106); **optional** like `ELEARNING_API_URL`: when it is unset, invalid or unreachable `sources.messages` is `unavailable` and `unreadMessages` is `null`. The Deploiment chart should set it. |
 | `MAIRIE_NAME` | unset | Name of the municipality of the instance (the variable Core API uses in its e-mails), answered trimmed as `communeName`; optional, `null` when unset or blank. The Deploiment chart should set it. |
 | `CORE_API_PORT` / `PROJECT_API_PORT` / `CALENDAR_API_PORT` / `ELEARNING_API_PORT` | — | Optional ports when absent from the URLs. |
 | `TRUST_PROXY` | unset (no proxy trusted) | Express `trust proxy` (`true`, a hop count such as `1`, or comma-separated addresses/subnets): set it behind the ingress so `req.ip` is the client. |

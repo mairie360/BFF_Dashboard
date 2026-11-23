@@ -33,6 +33,7 @@ PROJECT_API_URL=http://localhost:3001
 CALENDAR_API_URL=http://localhost:3002
 # Optionnelles (MAIR-825) : source des formations et nom de la commune.
 # ELEARNING_API_URL=http://localhost:3004
+# MESSAGE_API_URL=http://localhost:3003
 # MAIRIE_NAME=Saint-Denis
 # Clé publique Ed25519 de Core (MAIR-680), obligatoire : coller la clé publique du Core utilisé.
 JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n<base64 de la clé publique de Core>\n-----END PUBLIC KEY-----"
@@ -63,6 +64,7 @@ Les valeurs ci-dessous sont des exemples locaux ou des comportements expliciteme
 | `PROJECT_API_URL` | http://localhost:3001 | Source des projets et tâches; obligatoire (le démarrage échoue sans elle). |
 | `CALENDAR_API_URL` | http://localhost:3002 | Source des événements; obligatoire (le démarrage échoue sans elle). |
 | `ELEARNING_API_URL` | non défini | Source des formations (MAIR-825) ; **optionnelle** : le démarrage ne la vérifie pas, et quand elle est absente, invalide ou injoignable `sources.trainings` vaut `unavailable` et `trainings` est vide. Le chart Deploiment doit la définir. |
+| `MESSAGE_API_URL` | non défini | Messages non lus du badge Messagerie (`GET /api/v1/unread/`, MAIR-1106) ; **optionnelle** comme `ELEARNING_API_URL` : quand elle est absente, invalide ou injoignable `sources.messages` vaut `unavailable` et `unreadMessages` vaut `null`. Le chart Deploiment doit la définir. |
 | `MAIRIE_NAME` | non défini | Nom de la commune de l’instance (la variable que Core API utilise dans ses e-mails), renvoyé sans espaces autour dans `communeName` ; optionnelle, `null` si absente ou vide. Le chart Deploiment doit la définir. |
 | `CORE_API_PORT` / `PROJECT_API_PORT` / `CALENDAR_API_PORT` / `ELEARNING_API_PORT` | — | Ports optionnels si absents des URL. |
 | `TRUST_PROXY` | non défini (aucun proxy de confiance) | Réglage Express `trust proxy` (`true`, un nombre de sauts comme `1`, ou des adresses/sous-réseaux séparés par des virgules) : à définir derrière l’ingress pour que `req.ip` soit le client. |

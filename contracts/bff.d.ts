@@ -100,7 +100,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Data read from Core API, Project API, Calendar API and ELearning API in one parallel wave, within the session scope */
+                /** @description Data read from Core API, Project API, Calendar API, ELearning API and Message API in one parallel wave, within the session scope */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -218,6 +218,8 @@ export interface components {
                 calendar: "available" | "unavailable";
                 /** @enum {string} */
                 trainings: "available" | "unavailable";
+                /** @enum {string} */
+                messages: "available" | "unavailable";
             };
             /** @description Last name from Core API (empty string when it has none) */
             userLastName: string;
@@ -225,7 +227,7 @@ export interface components {
             userRole: string | null;
             /** @description Name of the municipality of the instance (`MAIRIE_NAME`), null when not configured */
             communeName: string | null;
-            /** @description The first 3 trainings of the user from ELearning API: unfinished first (in progress, then to do), then done */
+            /** @description The first 3 trainings of the user from ELearning API: unfinished first (in progress, then to do), then done; soonest due date first inside each group, none last */
             trainings: {
                 id: string;
                 title: string;
@@ -234,7 +236,11 @@ export interface components {
                 completedModules: number;
                 totalModules: number;
                 progress: number;
+                /** @description Date the training should be completed by (YYYY-MM-DD), null when it has none */
+                dueDate: string | null;
             }[];
+            /** @description Unread messages of the user over their chats (Message API), for the Messagerie badge; null when Message API is unavailable (`sources.messages`) */
+            unreadMessages: number | null;
         };
     };
     responses: never;
