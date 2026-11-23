@@ -4,6 +4,8 @@ import { getCalendarAPIMairie360 } from '@mairie360/calendar-api-openapi/endpoin
 import { EventCategory, EventVisibility, type EventView, type GetCalendarResultView } from '@mairie360/calendar-api-openapi/model';
 import { getCoreAPIMairie360 } from '@mairie360/core-api-openapi/endpoints/coreAPIMairie360';
 import type { GetMeResponseView } from '@mairie360/core-api-openapi/model';
+import { getELearningAPIMairie360 } from '@mairie360/elearning-api-openapi/endpoints/eLearningAPIMairie360';
+import { type CatalogFormation, type CatalogModule, type GetCatalogResultView, Status } from '@mairie360/elearning-api-openapi/model';
 import { getProjectAPIMairie360 } from '@mairie360/project-api-openapi/endpoints/projectAPIMairie360';
 import {
   type GetProjectsResultView,
@@ -24,6 +26,7 @@ import {
 export const coreApiUrls = getCoreAPIMairie360();
 export const projectApiUrls = getProjectAPIMairie360();
 export const calendarApiUrls = getCalendarAPIMairie360();
+export const elearningApiUrls = getELearningAPIMairie360();
 
 /** Body of Core `GET /api/v1/user/me/` for user 2 (Alice). */
 export function coreMe(fields: Partial<GetMeResponseView> = {}): GetMeResponseView {
@@ -79,6 +82,24 @@ export function eventView(id: number, overrides: Partial<EventView> = {}): Event
 }
 
 export const calendarResult = (events: EventView[]): GetCalendarResultView => ({ events });
+
+/** A module of a formation of `GET /api/v1/formations/catalog/` (ELearning API, MAIR-825). */
+export function catalogModule(id: number, completed: boolean): CatalogModule {
+  return { id, name: `Module ${id}`, description: '', completed, files: [] };
+}
+
+/**
+ * A formation of the caller in `GET /api/v1/formations/catalog/`: `done` of its `total` modules completed (the first
+ * ones).
+ */
+export function catalogFormation(id: number, status: Status, done = 0, total = 0, overrides: Partial<CatalogFormation> = {}): CatalogFormation {
+  return {
+    id, name: `Formation ${id}`, description: '', status,
+    modules: Array.from({ length: total }, (_, index) => catalogModule(id * 100 + index, index < done)), ...overrides,
+  };
+}
+
+export const catalogResult = (formations: CatalogFormation[]): GetCatalogResultView => ({ formations });
 
 // --- Session ---
 

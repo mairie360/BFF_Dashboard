@@ -25,6 +25,7 @@
     "@mairie360/bff-dashboard-openapi": "2.0.0",
     "@mairie360/calendar-api-openapi": "1.2.0",
     "@mairie360/core-api-openapi": "2.2.0",
+    "@mairie360/elearning-api-openapi": "1.3.0",
     "@mairie360/project-api-openapi": "1.2.0",
     "@types/express": "5.0.6",
     "@types/jest": "30.0.0",

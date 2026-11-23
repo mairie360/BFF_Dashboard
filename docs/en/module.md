@@ -13,6 +13,7 @@ Business domain: Dashboard.
 ## Available capabilities
 
 - Personalized welcome using the first name supplied by Core API.
+- Dashboard V2 (MAIR-825): the last name and the role of the user (Core API profile, else the `role` claim of the token), the name of the municipality (`MAIRIE_NAME`) and up to three trainings of the user from ELearning API (unfinished first).
 - Overview of six projects, up to eight unfinished tasks and six events within the next 30 days (Europe/Paris calendar).
 - Explicit source-availability indicators and a nullable project count.
 
@@ -30,7 +31,7 @@ This repository contains the BFF server and its contract. Associated web service
 
 ## Data and current state
 
-The dashboard reads the APIs, never another BFF (MAIR-525), in one parallel wave: Core API `GET /api/v1/user/me/` supplies the first name (and the roles of a token without the `role` claim), Project API `GET /api/v1/projects/?limit=6` the first projects and their total, Project API `GET /api/v1/tasks/?limit=8` the first active tasks across every visible project, soonest due first, in one call (MAIR-557), and Calendar API `GET /api/v1/calendar` the events of the next 30 days. Tasks follow BFF Project's visibility: Admin, Maire and Responsable see every active task of the visible projects, other roles only theirs (`assigned_to`); the role comes from the verified token. The BFF has no database of its own and no business mutations.
+The dashboard reads the APIs, never another BFF (MAIR-525), in one parallel wave: Core API `GET /api/v1/user/me/` supplies the first name (and the roles of a token without the `role` claim), Project API `GET /api/v1/projects/?limit=6` the first projects and their total, Project API `GET /api/v1/tasks/?limit=8` the first active tasks across every visible project, soonest due first, in one call (MAIR-557), Calendar API `GET /api/v1/calendar` the events of the next 30 days, and ELearning API `GET /api/v1/formations/catalog/` the trainings of the user with their modules (MAIR-825). Tasks follow BFF Project's visibility: Admin, Maire and Responsable see every active task of the visible projects, other roles only theirs (`assigned_to`); the role comes from the verified token. The BFF has no database of its own and no business mutations.
 
 ## Scope and limitations
 

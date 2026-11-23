@@ -10,7 +10,7 @@ After identity resolution, Project and Calendar sources are queried in parallel.
 
 ## Data and persistence
 
-The dashboard reads the APIs, never another BFF (MAIR-525), in one parallel wave: Core API `GET /api/v1/user/me/` supplies the first name (and the roles of a token without the `role` claim), Project API `GET /api/v1/projects/?limit=6` the first projects and their total, Project API `GET /api/v1/tasks/?limit=8` the first active tasks across every visible project, soonest due first, in one call (MAIR-557), and Calendar API `GET /api/v1/calendar` the events of the next 30 days. Tasks follow BFF Project's visibility: Admin, Maire and Responsable see every active task of the visible projects, other roles only theirs (`assigned_to`); the role comes from the verified token. The BFF has no database of its own and no business mutations.
+The dashboard reads the APIs, never another BFF (MAIR-525), in one parallel wave: Core API `GET /api/v1/user/me/` supplies the first name (and the roles of a token without the `role` claim), Project API `GET /api/v1/projects/?limit=6` the first projects and their total, Project API `GET /api/v1/tasks/?limit=8` the first active tasks across every visible project, soonest due first, in one call (MAIR-557), Calendar API `GET /api/v1/calendar` the events of the next 30 days, and ELearning API `GET /api/v1/formations/catalog/` the trainings of the user with their modules (MAIR-825). Tasks follow BFF Project's visibility: Admin, Maire and Responsable see every active task of the visible projects, other roles only theirs (`assigned_to`); the role comes from the verified token. The BFF has no database of its own and no business mutations.
 
 The overview is limited and does not replace complete module listings. Unavailable sources are flagged and missing metrics remain null or absent. Reports and population or performance metrics are not supplied by this contract.
 
@@ -31,6 +31,9 @@ PORT=4007
 CORE_API_URL=http://localhost:3000
 PROJECT_API_URL=http://localhost:3001
 CALENDAR_API_URL=http://localhost:3002
+# Optional (MAIR-825): trainings source and municipality name.
+# ELEARNING_API_URL=http://localhost:3004
+# MAIRIE_NAME=Saint-Denis
 # Core's Ed25519 public key (MAIR-680), required: paste the public key of the Core you run against.
 JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n<base64 of Core's public key>\n-----END PUBLIC KEY-----"
 ```
@@ -59,7 +62,9 @@ Values below are local examples or explicitly described behavior, not production
 | `CORE_API_URL` | http://localhost:3000 | Identity source (first name, roles of an older token); required (startup fails without it). |
 | `PROJECT_API_URL` | http://localhost:3001 | Project and task source; required (startup fails without it). |
 | `CALENDAR_API_URL` | http://localhost:3002 | Event source; required (startup fails without it). |
-| `CORE_API_PORT` / `PROJECT_API_PORT` / `CALENDAR_API_PORT` | — | Optional ports when absent from the URLs. |
+| `ELEARNING_API_URL` | unset | Trainings source (MAIR-825); **optional**: startup does not check it, and when it is unset, invalid or unreachable `sources.trainings` is `unavailable` and `trainings` is empty. The Deploiment chart should set it. |
+| `MAIRIE_NAME` | unset | Name of the municipality of the instance (the variable Core API uses in its e-mails), answered trimmed as `communeName`; optional, `null` when unset or blank. The Deploiment chart should set it. |
+| `CORE_API_PORT` / `PROJECT_API_PORT` / `CALENDAR_API_PORT` / `ELEARNING_API_PORT` | — | Optional ports when absent from the URLs. |
 | `TRUST_PROXY` | unset (no proxy trusted) | Express `trust proxy` (`true`, a hop count such as `1`, or comma-separated addresses/subnets): set it behind the ingress so `req.ip` is the client. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset (telemetry off) | OpenTelemetry collector of the instance, e.g. `http://otel-collector:4318`: traces and HTTP metrics are exported over OTLP (MAIR-504). Only the method, status, parameterised route and upstream host leave the BFF, never a URL, query string, header, id or IP. |
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | `bff-dashboard`; unset | Override the service name; extra resource attributes such as `service.version=<image tag>,deployment.environment.name=prod`. `OTEL_SDK_DISABLED=true` turns telemetry off. |
@@ -76,7 +81,7 @@ Inventory extracted from `contracts/openapi.json`. Replace brace parameters with
 
 ## Session, permissions and errors
 
-The only accepted credential is the `Authorization: Bearer <token>` header (read by `@mairie360/bffs-lib`); cookies and `x-session-token` are ignored. Without it, every `/dashboard/*` request is refused with 401 before any upstream call, and `/dashboard/*` answers carry `Cache-Control: no-store`. The token is forwarded, normalised to `Bearer <token>`, to the three APIs. A failed Core profile blocks bootstrap. Project and Calendar calls can degrade their respective sections; a 401 rejection from any call, a task list included, is propagated. Only an upstream 401 is relayed (it is the only upstream status the contract declares); any other upstream status, a network failure or an unusable body becomes 502 (an unusable Core profile: `The CORE_API answer is invalid.`), and a missing or invalid upstream URL returns 503. Upstream bodies and messages are never relayed. Clients use a 10-second timeout and retry an idempotent read once on a transient failure.
+The only accepted credential is the `Authorization: Bearer <token>` header (read by `@mairie360/bffs-lib`); cookies and `x-session-token` are ignored. Without it, every `/dashboard/*` request is refused with 401 before any upstream call, and `/dashboard/*` answers carry `Cache-Control: no-store`. The token is forwarded, normalised to `Bearer <token>`, to every API. A failed Core profile blocks bootstrap. Project, Calendar and ELearning calls can degrade their respective sections (an unconfigured ELearning API included: its URL is optional); a 401 rejection from any call, a task list included, is propagated. Only an upstream 401 is relayed (it is the only upstream status the contract declares); any other upstream status, a network failure or an unusable body becomes 502 (an unusable Core profile: `The CORE_API answer is invalid.`), and a missing or invalid upstream URL returns 503. Upstream bodies and messages are never relayed. Clients use a 10-second timeout and retry an idempotent read once on a transient failure.
 
 Security headers come from the lib (`securityHeaders`, then `apiOnlyHeaders()`: `default-src 'none'` CSP, `nosniff`, `same-origin` CORP everywhere but `/docs`).
 
@@ -110,7 +115,7 @@ The `contracts.yml` job uses Node.js 24.22.1, `actions/checkout@v7` and `actions
 
 The Dockerfile uses `node:24.22.1-alpine`, pinned by digest, for build and runtime (`development.Dockerfile` too); the image command is `["node", "dist/index.js"]`. GitHub Packages credentials are only mounted as build secrets (`npmrc`, `node_auth_token`) during `npm ci`. `development.Dockerfile` installs all dependencies and runs `npm run start`.
 
-`integration_test.sh` (MAIR-262) runs the stack of `docker-compose-integration.yml`: the published Core, Project and Calendar API images, the database with its migrations and `init-test.sql`, Redis, the BFF image under test and a `newman` service that replays `tests/postman/collection.json` (environment `tests/postman/environment.json`) against the BFF with `--bail`. Its exit code is the exit code of newman. The BFF is read-only, so the collection only holds working checks: the BFF starts, `/health`, `/check_apis` with the three APIs connected, `/openapi.json`, a JSON 404, and `GET /dashboard/bootstrap` refused without a session (401, also for a token signed with another secret or for an account Core API does not know) then aggregated for the seeded Admin and agent (their own first name, every source available, the capped lists in the contract's vocabulary). The seeded accounts are impersonated with EdDSA JWTs that `integration_test.sh` signs with the run's Ed25519 key, like Core (fresh key pair, `stack_secrets.sh`, MAIR-680), plus a forgery under Core's `kid` and an HS256 token, both refused; the committed environment holds no secret. In CI this stack is the `integration_tests` gate of the staging promotion: it blocks the promotion on failure and publishes the junit report (`newman-reports/newman.xml`) as job summary and artifact. The jest test `tests/integration-collection.test.ts` checks that every operation of `contracts/openapi.json` has a request in the collection and that every request asserts something.
+`integration_test.sh` (MAIR-262) runs the stack of `docker-compose-integration.yml`: the published Core, Project and Calendar API images, the database with its migrations and `init-test.sql`, Redis, the BFF image under test and a `newman` service that replays `tests/postman/collection.json` (environment `tests/postman/environment.json`) against the BFF with `--bail`. Its exit code is the exit code of newman. The BFF is read-only, so the collection only holds working checks: the BFF starts, `/health`, `/check_apis` with the three APIs connected, `/openapi.json`, a JSON 404, and `GET /dashboard/bootstrap` refused without a session (401, also for a token signed with another secret or for an account Core API does not know) then aggregated for the seeded Admin and agent (their own first name, the projects, tasks and calendar sources available (ELearning API is not part of the stack: `sources.trainings` is `unavailable` there), the capped lists in the contract's vocabulary). The seeded accounts are impersonated with EdDSA JWTs that `integration_test.sh` signs with the run's Ed25519 key, like Core (fresh key pair, `stack_secrets.sh`, MAIR-680), plus a forgery under Core's `kid` and an HS256 token, both refused; the committed environment holds no secret. In CI this stack is the `integration_tests` gate of the staging promotion: it blocks the promotion on failure and publishes the junit report (`newman-reports/newman.xml`) as job summary and artifact. The jest test `tests/integration-collection.test.ts` checks that every operation of `contracts/openapi.json` has a request in the collection and that every request asserts something.
 
 Split of the tests: jest covers the routes with mocked APIs (unit tests, upstream-mock tests against the installed contracts, token refusals, degraded sources); the newman collection covers the BFF on the real APIs; ZAP and k6 cover security and performance. A bug fix adds its non-regression test at the lowest layer that observes it (jest first, the collection when only the real APIs show it).
 
@@ -134,7 +139,7 @@ Every log is one JSON object per line on stdout (MAIR-531, `@mairie360/bffs-lib`
 
 ## Troubleshooting
 
-Inspect `sources.projects`, `sources.tasks` and `sources.calendar` before interpreting an empty list. A `null` count means unavailable data. Check the same session in the business BFFs to understand visibility differences.
+Inspect `sources.projects`, `sources.tasks`, `sources.calendar` and `sources.trainings` before interpreting an empty list. A `null` count means unavailable data. Check the same session in the business BFFs to understand visibility differences.
 
 ## Repository reference
 

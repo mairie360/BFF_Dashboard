@@ -5,7 +5,7 @@ import {
   HttpError, PROJECT_TASK_MANAGER_ROLES, asCaller, callUpstream, hasRole, parisDateWindow, sessionRole, sessionUserId, wallClockToUtc,
 } from '@mairie360/bffs-lib';
 import { ErrorSchema, registry } from '../openapi-registry';
-import { calendarApi, coreApi, projectApi } from '../clients/upstreams';
+import { calendarApi, coreApi, elearningApi, projectApi } from '../clients/upstreams';
 import { nextOccurrence } from '../occurrences';
 
 const router = Router();
@@ -15,17 +15,28 @@ const Project = z.object({
 });
 const Task = z.object({ id: z.string(), title: z.string(), dueDate: z.string(), priority: z.enum(['high', 'medium', 'low']), completed: z.boolean() });
 const Event = z.object({ id: z.union([z.string(), z.number()]), title: z.string(), date: z.string(), startTime: z.string().optional(), location: z.string().optional() });
+const Training = z.object({
+  id: z.string(), title: z.string(), status: z.enum(['todo', 'in-progress', 'done']),
+  completedModules: z.number().int(), totalModules: z.number().int(), progress: z.number(),
+});
 const Availability = z.enum(['available', 'unavailable']);
 const eventSortKey = (event: z.infer<typeof Event>) => `${event.date}T${event.startTime ?? '00:00'}`;
 export const DashboardBootstrapSchema = registry.register('DashboardBootstrap', z.object({
   userFirstName: z.string(), projects: z.array(Project), tasks: z.array(Task.extend({ projectId: z.string() })),
   events: z.array(Event), metrics: z.object({ totalProjects: z.number().nullable() }),
-  sources: z.object({ projects: Availability, tasks: Availability, calendar: Availability }),
+  sources: z.object({ projects: Availability, tasks: Availability, calendar: Availability, trainings: Availability }),
+  // MAIR-825 (Dashboard V2): additive fields only, the fields above keep their shape.
+  userLastName: z.string().openapi({ description: 'Last name from Core API (empty string when it has none)' }),
+  userRole: z.string().nullable().openapi({ description: "Role of the user: Core's profile, else the `role` claim of the token; null when neither has one" }),
+  communeName: z.string().nullable().openapi({ description: 'Name of the municipality of the instance (`MAIRIE_NAME`), null when not configured' }),
+  trainings: z.array(Training).openapi({ description: 'The first 3 trainings of the user from ELearning API: unfinished first (in progress, then to do), then done' }),
 }));
 
 // What the dashboard reads from each API answer. A body that does not match (including a non-JSON body, which axios
 // keeps as a string) is a ZodError, which the lib's callUpstream turns into a 502 `The <SERVICE> answer is invalid.`
-const CoreMe = z.object({ first_name: z.string(), roles: z.array(z.string()).optional(), role: z.string().optional() });
+const CoreMe = z.object({
+  first_name: z.string(), last_name: z.string().nullish(), roles: z.array(z.string()).optional(), role: z.string().nullish(),
+});
 const ProjectsPage = z.object({
   projects: z.array(z.object({
     id: z.number(), name: z.string(), status: z.string(), tasks_total: z.number(), tasks_completed: z.number(),
@@ -45,21 +56,31 @@ const CalendarEvent = z.object({
     frequency: z.string(), interval: z.number(), days_of_week: z.array(z.number()).nullish(), ends_on: z.string().nullish(),
   }).nullish(),
 });
+const CatalogPage = z.object({
+  formations: z.array(z.object({
+    id: z.number(), name: z.string(), status: z.string(), modules: z.array(z.object({ completed: z.boolean() })),
+  })),
+});
 // Only a refused session is relayed (the one upstream status the contract declares); anything else is a 502.
 // Idempotent reads: retried once on a transient failure.
 const READ = { declared: [401], retry: true } as const;
 const PROJECTS_SHOWN = 6;
 const TASKS_SHOWN = 8;
 const EVENTS_SHOWN = 6;
+const TRAININGS_SHOWN = 3;
 
 // Same vocabulary as BFF_Project (src/routes/Project/project_helpers.ts), so both pages show the same words.
 const PROJECT_STATUS: Record<string, z.infer<typeof Project>['status']> = { Active: 'in-progress', Suspended: 'review', Completed: 'done', Error: 'todo' };
 const TASK_PRIORITY: Record<string, z.infer<typeof Task>['priority']> = { Low: 'low', Medium: 'medium', High: 'high', Urgent: 'high', Error: 'medium' };
+// ELearning API progress -> dashboard status; `Error` (a value the API cannot interpret) is left out.
+const TRAINING_STATUS: Record<string, z.infer<typeof Training>['status']> = { NotStarted: 'todo', InProgress: 'in-progress', Completed: 'done' };
+// Unfinished first (in progress, then to do), then done; the order of ELearning API (by id) is kept inside.
+const TRAINING_ORDER: Record<z.infer<typeof Training>['status'], number> = { 'in-progress': 0, todo: 1, done: 2 };
 const projectPublicId = (id: number) => `project-${id}`;
 const dueKey = (dueDate: string | null | undefined) => (dueDate ? Date.parse(dueDate) || Infinity : Infinity);
 
 registry.registerPath({ method: 'get', path: '/dashboard/bootstrap', summary: 'Load the dashboard of the signed-in user', responses: {
-  200: { description: 'Data read from Core API, Project API and Calendar API in one parallel wave, within the session scope', content: { 'application/json': { schema: DashboardBootstrapSchema } } },
+  200: { description: 'Data read from Core API, Project API, Calendar API and ELearning API in one parallel wave, within the session scope', content: { 'application/json': { schema: DashboardBootstrapSchema } } },
   401: { description: 'Missing or invalid session, or session refused by an upstream API', content: { 'application/json': { schema: ErrorSchema } } },
   // bffs-lib >= 2.4.0 relays an upstream 429 with its Retry-After instead of a 502 (MAIR-562).
   429: { description: 'Core API rate limit reached: retry after the Retry-After header (seconds)', content: { 'application/json': { schema: ErrorSchema } } },
@@ -92,8 +113,19 @@ async function readEvents(req: Request, { from, to }: { from: string; to: string
     (await calendarApi.getCalendar(params, asCaller('CALENDAR_API', req))).data), READ);
 }
 
+/** The caller's trainings with their modules (one call, MAIR-825). */
+function readTrainings(req: Request) {
+  return callUpstream('ELEARNING_API', async () => CatalogPage.parse(
+    (await elearningApi.getMyCatalog(asCaller('ELEARNING_API', req))).data), READ);
+}
+
+/** The instance's municipality name (`MAIRIE_NAME`, the variable Core uses in its e-mails), optional. */
+function communeName(): string | null {
+  return process.env.MAIRIE_NAME?.trim() || null;
+}
+
 router.get('/bootstrap', async (req, res) => {
-  // One wave (MAIR-525): the profile, the projects, the tasks and the events start together, from the APIs; no other
+  // One wave (MAIR-525): the profile, the projects, the tasks, the events and the trainings start together, from the APIs; no other
   // BFF is called. A refused session (401) from any call fails the whole answer.
   const me = callUpstream('CORE_API', async () => CoreMe.parse((await coreApi.getMe(asCaller('CORE_API', req))).data), READ);
   // The role comes from the verified token (MAIR-529); only a token without it waits for Core's profile to read tasks.
@@ -102,10 +134,10 @@ router.get('/bootstrap', async (req, res) => {
   const now = new Date();
   const window = parisDateWindow(30, now);
   const roles = tokenRole !== undefined ? Promise.resolve([tokenRole]) : me.then((profile) => profile.roles ?? (profile.role ? [profile.role] : []));
-  const [meResult, projectsResult, tasksResult, calendarResult] = await Promise.allSettled([
-    me, readProjects(req), readTasks(req, roles), readEvents(req, window),
+  const [meResult, projectsResult, tasksResult, calendarResult, trainingsResult] = await Promise.allSettled([
+    me, readProjects(req), readTasks(req, roles), readEvents(req, window), readTrainings(req),
   ]);
-  for (const result of [projectsResult, tasksResult, calendarResult]) {
+  for (const result of [projectsResult, tasksResult, calendarResult, trainingsResult]) {
     if (result.status === 'rejected' && result.reason instanceof HttpError && result.reason.status === 401) throw result.reason;
   }
   // The profile is required: its failure is the answer.
@@ -143,16 +175,35 @@ router.get('/bootstrap', async (req, res) => {
     })
     : [];
 
+  // ELearning API is optional (MAIR-825): not configured, unreachable or failing, the section is unavailable.
+  const trainings = trainingsResult.status === 'fulfilled'
+    ? trainingsResult.value.formations.flatMap((formation) => {
+      if (!Object.prototype.hasOwnProperty.call(TRAINING_STATUS, formation.status)) return [];
+      const status = TRAINING_STATUS[formation.status];
+      const completedModules = formation.modules.filter((module) => module.completed).length;
+      const totalModules = formation.modules.length;
+      const progress = status === 'done' ? 100 : totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0;
+      return [{ id: `training-${formation.id}`, title: formation.name, status, completedModules, totalModules, progress }];
+    }).sort((a, b) => TRAINING_ORDER[a.status] - TRAINING_ORDER[b.status])
+    : [];
+  const profile = meResult.value;
+
   return res.json(DashboardBootstrapSchema.parse({
-    userFirstName: meResult.value.first_name,
+    userFirstName: profile.first_name,
+    userLastName: profile.last_name ?? '',
+    // One role per user (Core MAIR-564): the profile's, else the token's; an empty string is no role.
+    userRole: profile.role || tokenRole || null,
+    communeName: communeName(),
     projects,
     tasks: tasks.slice(0, TASKS_SHOWN),
     events: events.sort((a, b) => eventSortKey(a).localeCompare(eventSortKey(b))).slice(0, EVENTS_SHOWN),
+    trainings: trainings.slice(0, TRAININGS_SHOWN),
     metrics: { totalProjects: page ? page.total : null },
     sources: {
       projects: page ? 'available' : 'unavailable',
       tasks: tasksResult.status === 'fulfilled' ? 'available' : 'unavailable',
       calendar: calendarResult.status === 'fulfilled' ? 'available' : 'unavailable',
+      trainings: trainingsResult.status === 'fulfilled' ? 'available' : 'unavailable',
     },
   }));
 });

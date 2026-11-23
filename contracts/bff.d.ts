@@ -100,7 +100,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Data read from Core API, Project API and Calendar API in one parallel wave, within the session scope */
+                /** @description Data read from Core API, Project API, Calendar API and ELearning API in one parallel wave, within the session scope */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -216,7 +216,25 @@ export interface components {
                 tasks: "available" | "unavailable";
                 /** @enum {string} */
                 calendar: "available" | "unavailable";
+                /** @enum {string} */
+                trainings: "available" | "unavailable";
             };
+            /** @description Last name from Core API (empty string when it has none) */
+            userLastName: string;
+            /** @description Role of the user: Core's profile, else the `role` claim of the token; null when neither has one */
+            userRole: string | null;
+            /** @description Name of the municipality of the instance (`MAIRIE_NAME`), null when not configured */
+            communeName: string | null;
+            /** @description The first 3 trainings of the user from ELearning API: unfinished first (in progress, then to do), then done */
+            trainings: {
+                id: string;
+                title: string;
+                /** @enum {string} */
+                status: "todo" | "in-progress" | "done";
+                completedModules: number;
+                totalModules: number;
+                progress: number;
+            }[];
         };
     };
     responses: never;
