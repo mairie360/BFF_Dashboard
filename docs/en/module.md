@@ -13,7 +13,7 @@ Business domain: Dashboard.
 ## Available capabilities
 
 - Personalized welcome using the first name supplied by Core API.
-- Dashboard V2 (MAIR-825): the last name and the role of the user (Core API profile, else the `role` claim of the token), the name of the municipality (`MAIRIE_NAME`) and up to three trainings of the user from ELearning API (unfinished first).
+- Dashboard V2 (MAIR-825): the last name and the role of the user (Core API profile, else the `role` claim of the token), the name of the municipality (`MAIRIE_NAME`) and up to three trainings of the user from ELearning API (unfinished first, then the soonest due date, with `dueDate`, MAIR-1110), and the number of unread messages for the Messagerie badge (`unreadMessages`, Message API, MAIR-1106).
 - Overview of six projects, up to eight unfinished tasks and six events within the next 30 days (Europe/Paris calendar).
 - Explicit source-availability indicators and a nullable project count.
 

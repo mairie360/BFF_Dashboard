@@ -13,7 +13,7 @@ Domaine fonctionnel: Tableau de bord.
 ## Fonctions disponibles
 
 - Accueil personnalisé à partir du prénom fourni par Core API.
-- Dashboard V2 (MAIR-825) : le nom et le rôle de l’utilisateur (profil Core API, sinon le claim `role` du jeton), le nom de la commune (`MAIRIE_NAME`) et jusqu’à trois formations de l’utilisateur venant d’ELearning API (non terminées d’abord).
+- Dashboard V2 (MAIR-825) : le nom et le rôle de l’utilisateur (profil Core API, sinon le claim `role` du jeton), le nom de la commune (`MAIRIE_NAME`) et jusqu’à trois formations de l’utilisateur venant d’ELearning API (non terminées d’abord, puis par échéance la plus proche, avec `dueDate`, MAIR-1110), et le nombre de messages non lus pour le badge Messagerie (`unreadMessages`, Message API, MAIR-1106).
 - Aperçu de six projets, de huit tâches non terminées au maximum et de six événements sur les 30 prochains jours (calendrier Europe/Paris).
 - Indicateurs explicites de disponibilité des sources et compteur de projets nullable.
 

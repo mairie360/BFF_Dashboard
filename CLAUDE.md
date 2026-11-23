@@ -92,7 +92,7 @@ Project `GET /api/v1/tasks/?limit=8` (the first active tasks across every visibl
 before this call), and Calendar `GET /api/v1/calendar?start=&end=` (next 30 days of the `Europe/Paris`
 calendar, `parisDateWindow(30)` converted with the lib's `wallClockToUtc`; event times shown with `utcToWallClock`),
 and ELearning API `GET /api/v1/formations/catalog/` (MAIR-825: the caller's trainings, `training-<id>`, `Error` ones skipped,
-unfinished first then done, capped at 3). MAIR-825 also adds `userLastName` (Core `last_name`), `userRole` (Core's `role`,
+unfinished first then done, soonest `deadline` first inside each group (`dueDate`, MAIR-1110), capped at 3). MAIR-1106 adds `unreadMessages` (Message API `GET /api/v1/unread/`, optional `MESSAGE_API_URL`, `null` + `sources.messages = "unavailable"` when it fails). MAIR-825 also adds `userLastName` (Core `last_name`), `userRole` (Core's `role`,
 else the token's `role` claim, `null` when neither) and `communeName` (`MAIRIE_NAME`, trimmed, `null` when unset). Only
 additive fields: existing ones keep their shape. `ELEARNING_API_URL` and `MAIRIE_NAME` are **optional** and not in
 `UPSTREAM_SERVICES` (deployments do not set them yet): an unset ELearning URL degrades to `sources.trainings =

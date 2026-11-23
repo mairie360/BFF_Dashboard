@@ -439,6 +439,28 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       ]);
     });
 
+    test('MAIR-1110: relays the deadline as dueDate and sorts each status group soonest due first, none last', async () => {
+      mockUpstreams({
+        trainings: [
+          catalogFormation(1, 'InProgress', 1, 2, { name: 'Sans échéance' }),
+          catalogFormation(2, 'InProgress', 1, 2, { name: 'Décembre', deadline: '2026-12-15' }),
+          catalogFormation(3, 'InProgress', 1, 2, { name: 'Octobre', deadline: '2026-10-01' }),
+          catalogFormation(4, 'NotStarted', 0, 2, { name: 'À faire bientôt', deadline: '2026-09-20' }),
+        ],
+      });
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      // In progress before to do whatever the dates; inside, the soonest deadline first, none last; capped at 3.
+      expect(response.body.trainings.map((t: { id: string; dueDate: string | null }) => [t.id, t.dueDate])).toEqual([
+        ['training-3', '2026-10-01'],
+        ['training-2', '2026-12-15'],
+        ['training-1', null],
+      ]);
+    });
+
     test('no training yields an available empty section', async () => {
       mockUpstreams();
 
