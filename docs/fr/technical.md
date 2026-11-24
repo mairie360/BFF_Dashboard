@@ -36,6 +36,7 @@ CALENDAR_API_URL=http://localhost:3002
 # MESSAGE_API_URL=http://localhost:3003
 # MAIRIE_NAME=Saint-Denis
 # Clé publique Ed25519 de Core (MAIR-680), obligatoire : coller la clé publique du Core utilisé.
+# bffs-lib >= 3 refuse les jetons HS256 et ignore JWT_SECRET : ne pas le définir.
 JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n<base64 de la clé publique de Core>\n-----END PUBLIC KEY-----"
 ```
 

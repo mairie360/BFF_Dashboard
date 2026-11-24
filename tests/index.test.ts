@@ -26,15 +26,16 @@ describe('start()', () => {
     expect(() => start(0)).toThrow('Missing or invalid upstream configuration: CORE_API_URL, CALENDAR_API_URL');
   });
 
-  test('MAIR-680 throws before listening without JWT_PUBLIC_KEY (nor JWT_SECRET), which verifies the sessions', () => {
+  test('MAIR-680 throws before listening without JWT_PUBLIC_KEY, which verifies the sessions, even with JWT_SECRET set', () => {
     for (const service of UPSTREAM_SERVICES) process.env[`${service}_URL`] = `${service.toLowerCase()}.internal`;
     const key = process.env.JWT_PUBLIC_KEY;
     delete process.env.JWT_PUBLIC_KEY;
-    delete process.env.JWT_SECRET;
+    process.env.JWT_SECRET = 'secret';
     try {
       expect(() => start(0)).toThrow('Missing configuration: JWT_PUBLIC_KEY');
     } finally {
       process.env.JWT_PUBLIC_KEY = key;
+      delete process.env.JWT_SECRET;
     }
   });
 
