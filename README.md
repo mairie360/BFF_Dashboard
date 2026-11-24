@@ -42,13 +42,14 @@ JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n<base64 of Core's public key>\n-----
 
 ## Routes
 
-Generated contract: [`contracts/openapi.json`](contracts/openapi.json) (3 operations), published on every release as `@mairie360/bff-dashboard-openapi` for the front.
+Generated contract: [`contracts/openapi.json`](contracts/openapi.json) (4 operations), published on every release as `@mairie360/bff-dashboard-openapi` for the front.
 
 | Method | Path | Summary |
 | --- | --- | --- |
 | `GET` | `/health` | Checks that the BFF process is up |
 | `GET` | `/check_apis` | Checks that the three upstream APIs are reachable |
 | `GET` | `/dashboard/bootstrap` | Load the dashboard of the signed-in user |
+| `PUT` | `/dashboard/onboarding` | Mark the welcome tour as done |
 
 ## Upstream contracts
 

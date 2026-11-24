@@ -14,6 +14,7 @@ Domaine fonctionnel: Tableau de bord.
 
 - Accueil personnalisé à partir du prénom fourni par Core API.
 - Dashboard V2 (MAIR-825) : le nom et le rôle de l’utilisateur (profil Core API, sinon le claim `role` du jeton), le nom de la commune (`MAIRIE_NAME`) et jusqu’à trois formations de l’utilisateur venant d’ELearning API (non terminées d’abord, puis par échéance la plus proche, avec `dueDate`, MAIR-1110), et le nombre de messages non lus pour le badge Messagerie (`unreadMessages`, Message API, MAIR-1106).
+- Visite de bienvenue : `onboardingCompleted` (préférences Core API) vaut `false` tant que l’utilisateur ne l’a pas terminée ou passée, puis `true` ; `PUT /dashboard/onboarding` l’enregistre ; `null` quand Core API ne peut pas répondre.
 - Aperçu de six projets, de huit tâches non terminées au maximum et de six événements sur les 30 prochains jours (calendrier Europe/Paris).
 - Indicateurs : `metrics.totalProjects` (tous les projets visibles, comme la liste Projets) et `metrics.eventsThisMonth`, les occurrences des événements de l’utilisateur qui commencent dans le mois calendaire en cours en Europe/Paris (récurrences dépliées, occurrences passées comprises, comme la vue mois du calendrier), sur `metrics.eventsPeriod` (`from` / `to`, premier et dernier jour). Chacun vaut `null` quand son API est indisponible.
 - Indicateurs explicites de disponibilité des sources et compteur de projets nullable.

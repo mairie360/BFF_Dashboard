@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { JsonSchema, OpenApiContract } from './support/openapi-contract';
 import { loadOrvalContract, resolveOrvalPackage } from './support/orval-contract';
 import {
-  calendarApiUrls, calendarResult, catalogFormation, catalogResult, coreApiUrls, coreMe, elearningApiUrls, eventView, projectApiUrls,
+  calendarApiUrls, calendarResult, catalogFormation, catalogResult, coreApiUrls, coreMe, corePreferences, elearningApiUrls, eventView, projectApiUrls,
   projectListItem, projectsResult, taskListItem, taskListResult,
 } from './support/upstream-fixtures';
 
@@ -28,6 +28,9 @@ const packageJson = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.
 // generated clients.
 const CONSUMED = [
   { contract: core, operationId: 'getMe', method: 'get', url: coreApiUrls.getGetMeUrl() },
+  // The welcome tour state: read by /dashboard/bootstrap, written by PUT /dashboard/onboarding.
+  { contract: core, operationId: 'getMyPreferences', method: 'get', url: coreApiUrls.getGetMyPreferencesUrl() },
+  { contract: core, operationId: 'patchMyPreferences', method: 'patch', url: coreApiUrls.getPatchMyPreferencesUrl() },
   { contract: core, operationId: 'health', method: 'get', url: coreApiUrls.getHealthUrl() },
   { contract: project, operationId: 'getProjects', method: 'get', url: projectApiUrls.getGetProjectsUrl({ limit: 6 }) },
   { contract: project, operationId: 'getTasks', method: 'get', url: projectApiUrls.getGetTasksUrl({ limit: 8, assigned_to: 2 }) },
@@ -70,6 +73,7 @@ describe('upstream contracts from the installed @mairie360 OpenAPI packages', ()
 describe('upstream fixtures conform to the upstream contracts', () => {
   test.each([
     ['Core getMe 200', core, coreApiUrls.getGetMeUrl(), coreMe()],
+    ['Core getMyPreferences 200', core, coreApiUrls.getGetMyPreferencesUrl(), corePreferences({ onboarding_completed: true })],
     ['Project getProjects 200', project, projectApiUrls.getGetProjectsUrl(), projectsResult([projectListItem(1, { tasks_total: 3, tasks_completed: 1 })], 12)],
     ['Project getTasks 200', project, projectApiUrls.getGetTasksUrl(), taskListResult([taskListItem(1), taskListItem(2, { project_id: 3, assigned_to: 2 })], 14)],
     ['Calendar getCalendar 200', calendar, calendarApiUrls.getGetCalendarUrl({ start: '', end: '' }), calendarResult([eventView(1), eventView(2, { location: 'Mairie' })])],
