@@ -245,7 +245,7 @@
                 "bootstrap"
               ]
             },
-            "description": "Well-formed token of the seeded agent signed with another secret: the BFF verifies the signature with the JWT_SECRET of this run (random, MAIR-428) before any upstream call."
+            "description": "Well-formed token of the seeded agent signed with another secret: the BFF verifies the signature with Core's public key of this run (JWT_PUBLIC_KEY, MAIR-680) before any upstream call."
           },
           "event": [
             {

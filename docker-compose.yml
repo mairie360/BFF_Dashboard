@@ -9,11 +9,8 @@ services:
       CORE_API_URL: ${CORE_API_URL:-http://host.docker.internal:3000}
       PROJECT_API_URL: ${PROJECT_API_URL:-http://host.docker.internal:3001}
       CALENDAR_API_URL: ${CALENDAR_API_URL:-http://host.docker.internal:3002}
-      # Must be the JWT_SECRET of the upstream services: the BFF verifies the session tokens with it
-      # (bffs-lib requireSession, MAIR-474) and refuses to start without it.
-      JWT_SECRET: ${JWT_SECRET:-b"secret"}
-      # MAIR-680: Core's public key when the shell provides it (stack_secrets.sh); JWT_SECRET is the
-      # HS256 transition of the dev stack only.
+      # MAIR-680: Core's public key (stack_secrets.sh provides it): the BFF verifies the session tokens with it
+      # (bffs-lib requireSession) and refuses to start without it. bffs-lib >= 3 ignores JWT_SECRET.
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"

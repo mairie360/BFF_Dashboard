@@ -12,7 +12,7 @@ business mutations** — it only adapts upstream data and enforces session rules
 ## Commands
 
 ```bash
-npm ci                      # install (use Node.js 24.22.1 to match the contracts CI job)
+npm ci                      # install (use Node.js 26.13.1 to match the contracts CI job)
 npm run start               # dev server, tsx watch src/index.ts, default port 4007 (deployed on 4004 by Deploiment)
 npm run build               # tsc -> dist/
 npm run lint                # eslint . --ext .ts   (lint:fix to autofix)
@@ -59,7 +59,7 @@ Swagger UI at `/docs`, the spec at `/openapi.json` and `/swagger.json`, and the 
 - The session is the `Authorization: Bearer <token>` header only (lib `authorization` / `requireSession`;
   cookies and `x-session-token` are ignored). `app.ts` mounts `noStore, requireSession` on `/dashboard`, so a
   request without a token verified with Core's public key `JWT_PUBLIC_KEY` (EdDSA under Core's `kid`, `iss`, `aud`,
-  numeric `sub`, not expired; MAIR-680, bffs-lib >= 2.7.0, HS256 only while `JWT_SECRET` is still set) gets a 401
+  numeric `sub`, not expired; MAIR-680; bffs-lib >= 3 refuses HS256 and ignores `JWT_SECRET`) gets a 401
   before any upstream call (`start()` runs `assertStartupConfiguration()`, which refuses a missing or malformed key;
   `tests/mair-680-eddsa-session.test.ts` pins the EdDSA / HS256 cases; `tests/token-refusals.test.ts` sweeps forged
   tokens over every secured operation of the contract, with a genuine-token control); the token is forwarded, normalised to
@@ -195,11 +195,11 @@ MAIR-474: both scripts source `stack_secrets.sh` (a fresh Ed25519 key pair per r
   legacy and ignored. `@typescript-eslint/no-explicit-any` and `no-await-in-loop` (MAIR-525) are **errors**.
 - Error messages, comments and logs are written in **English** (see `../../CLAUDE.md`); translate the French ones you touch.
 - **Docs are bilingual:** any change to `docs/en/*.md` must be mirrored in `docs/fr/*.md`.
-- CI: `contracts.yml` (Node 24.22.1: `contracts:check` + tests) and `cicd.yml` (shared
-  `mairie360/CICD/.github/workflows/BFFs-cicd.yml`, `node_version: "24.22.1"` — lint / audits / build / test / release
+- CI: `contracts.yml` (Node 26.13.1: `contracts:check` + tests) and `cicd.yml` (shared
+  `mairie360/CICD/.github/workflows/BFFs-cicd.yml`, `node_version: "26.13.1"` — lint / audits / build / test / release
   dev), then `promote-staging.yml` (ZAP / k6 through `./security_test.sh` / `./performance_test.sh` at repo root,
   then staging) and `promote-prod.yml`, manual (MAIR-494). Keep the `@vX.Y.Z` ref and `cicd_version:` input in sync.
-- Dockerfiles use `node:24.22.1-alpine` pinned by digest (both `Dockerfile` stages and `development.Dockerfile`); npm credentials only enter through BuildKit secrets
+- Dockerfiles use `node:26.13.1-alpine` pinned by digest (both `Dockerfile` stages and `development.Dockerfile`); npm credentials only enter through BuildKit secrets
   (`npmrc`, `node_auth_token`). Locally, the test scripts build `development.Dockerfile` when `IMAGE_REF` is empty.
 - `.npmrc` points `@mairie360:*` at GitHub Packages and needs `NODE_AUTH_TOKEN`: the
   `@mairie360/*-openapi` devDependencies (bundled by esbuild) are private.
@@ -210,7 +210,7 @@ MAIR-474: both scripts source `stack_secrets.sh` (a fresh Ed25519 key pair per r
 ## Environment
 
 Copy `.env.example` to `.env`: `PORT` (default 4007), `CORE_API_URL`, `PROJECT_API_URL`,
-`CALENDAR_API_URL`, `JWT_PUBLIC_KEY` (required, Core's Ed25519 public key, MAIR-680; `JWT_SECRET` only during the HS256 transition). Optional `*_API_PORT` counterparts, and the optional `ELEARNING_API_URL`, `MESSAGE_API_URL` (MAIR-1106) and `MAIRIE_NAME` (MAIR-825; the Deploiment chart should set them).
+`CALENDAR_API_URL`, `JWT_PUBLIC_KEY` (required, Core's Ed25519 public key, MAIR-680; `JWT_SECRET` is ignored since bffs-lib 3). Optional `*_API_PORT` counterparts, and the optional `ELEARNING_API_URL`, `MESSAGE_API_URL` (MAIR-1106) and `MAIRIE_NAME` (MAIR-825; the Deploiment chart should set them).
 
 ## Logs (MAIR-531)
 

@@ -103,7 +103,7 @@ export const catalogResult = (formations: CatalogFormation[]): GetCatalogResultV
 
 // --- Session ---
 
-/** The historical shared secret (MAIR-680): the BFF no longer gets it, so a token signed with it must be refused. */
+/** The historical shared secret (MAIR-680): bffs-lib >= 3 never reads it, so a token signed with it is refused. */
 export const JWT_SECRET = 'dashboard-contract-test-secret';
 
 /**
