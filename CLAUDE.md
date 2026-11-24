@@ -91,6 +91,9 @@ Project `GET /api/v1/tasks/?limit=8` (the first active tasks across every visibl
 `assigned_to=<caller>` unless the caller manages tasks; a token without the `role` claim waits for Core's profile
 before this call), and Calendar `GET /api/v1/calendar?start=&end=` (next 30 days of the `Europe/Paris`
 calendar, `parisDateWindow(30)` converted with the lib's `wallClockToUtc`; event times shown with `utcToWallClock`),
+a second Calendar `GET /api/v1/calendar` over the current Paris calendar month (`parisMonth`) for `metrics.eventsThisMonth`
+(occurrence starts of the month, recurrences expanded by `countOccurrences`, past ones included, like the calendar front's
+month view) over `metrics.eventsPeriod` `{ from, to }`: its failure only sets the count to `null` (a 401 still fails the answer),
 and ELearning API `GET /api/v1/formations/catalog/` (MAIR-825: the caller's trainings, `training-<id>`, `Error` ones skipped,
 unfinished first then done, soonest `deadline` first inside each group (`dueDate`, MAIR-1110), capped at 3). MAIR-1106 adds `unreadMessages` (Message API `GET /api/v1/unread/`, optional `MESSAGE_API_URL`, `null` + `sources.messages = "unavailable"` when it fails). MAIR-825 also adds `userLastName` (Core `last_name`), `userRole` (Core's `role`,
 else the token's `role` claim, `null` when neither) and `communeName` (`MAIRIE_NAME`, trimmed, `null` when unset). Only
@@ -107,7 +110,7 @@ the token (`sessionRole`, MAIR-529) or Core's profile for a token without it. A 
 any other upstream failure degrades that section to `sources.<x> = "unavailable"` and
 `metrics.totalProjects = null` rather than inventing data; an unusable event is skipped. Output is capped at 6
 projects / 8 tasks / 6 events. The upstream-mock tests check the single wave (arrival times) and a constant number
-of calls (5) for 1, 6 and 100 visible projects.
+of calls (7: Core, 2 Project, 2 Calendar, ELearning, Message) for 1, 6 and 100 visible projects.
 
 ### Telemetry (MAIR-504)
 

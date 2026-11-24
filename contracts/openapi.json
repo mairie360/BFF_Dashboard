@@ -236,10 +236,38 @@
                   "number",
                   "null"
                 ]
+              },
+              "eventsThisMonth": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "description": "Occurrences of the user's events starting during `eventsPeriod` (recurring events expanded), like the month view of the calendar; null when Calendar API is unavailable"
+              },
+              "eventsPeriod": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "description": "First day of the current Europe/Paris calendar month (YYYY-MM-DD)"
+                  },
+                  "to": {
+                    "type": "string",
+                    "description": "Last day of the current Europe/Paris calendar month (YYYY-MM-DD)"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "description": "Period counted by `eventsThisMonth`"
               }
             },
             "required": [
-              "totalProjects"
+              "totalProjects",
+              "eventsThisMonth",
+              "eventsPeriod"
             ]
           },
           "sources": {

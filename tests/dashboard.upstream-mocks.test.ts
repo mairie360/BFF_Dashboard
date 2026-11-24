@@ -100,6 +100,10 @@ function expectDashboardContract(response: request.Response) {
 
 const upstreamCalls = () => mocks.reduce((total, mock) => total + mock.requests.length, 0);
 const textError = (status: number, raw = 'upstream detail'): MockReply => ({ status, raw, contentType: 'text/plain', outOfContract: true });
+// The `start` / `end` of every Calendar API read, latest end last: the next 30 days always end on or after the month.
+const calendarWindows = () => calendarApi.calls(CALENDAR.calendar)
+  .map((call) => ({ start: call.url.searchParams.get('start')!, end: call.url.searchParams.get('end')! }))
+  .sort((a, b) => a.end.localeCompare(b.end));
 
 describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
   describe('nominal aggregation', () => {
@@ -124,7 +128,8 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
         // A task of a project beyond the shown ones keeps its own project.
         tasks: [{ id: 'task-2', title: 'Validation', dueDate: '2026-11-01T00:00:00Z', priority: 'high', completed: false, projectId: 'project-7' }],
         events: [{ id: 9, title: 'Conseil', date: '2026-09-18', startTime: '09:00', location: 'Mairie' }],
-        metrics: { totalProjects: 17 },
+        // The fixture's event of 2026-09-18 is the only one of September (Calendar API answers both reads alike).
+        metrics: { totalProjects: 17, eventsThisMonth: 1, eventsPeriod: { from: '2026-09-01', to: '2026-09-30' } },
         sources: { projects: 'available', tasks: 'available', calendar: 'available', trainings: 'available', messages: 'available' },
         userLastName: 'Martin',
         userRole: 'User',
@@ -144,7 +149,8 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(coreApi.requests.map((call) => call.url.pathname)).toEqual([coreApiUrls.getGetMeUrl()]);
       expect(projectApi.requests.map((call) => call.url.pathname).sort())
         .toEqual([projectApiUrls.getGetProjectsUrl(), projectApiUrls.getGetTasksUrl()].sort());
-      expect(calendarApi.requests.map((call) => call.url.pathname)).toEqual([calendarApiUrls.getGetCalendarUrl({ start: '', end: '' }).split('?')[0]]);
+      // The next 30 days and the current month.
+      expect(calendarApi.requests.map((call) => call.url.pathname)).toEqual(Array(2).fill(calendarApiUrls.getGetCalendarUrl({ start: '', end: '' }).split('?')[0]));
       expect(elearningApi.requests.map((call) => call.url.pathname)).toEqual([elearningApiUrls.getGetMyCatalogUrl()]);
       for (const call of mocks.flatMap((mock) => mock.requests)) {
         expect(call.method).toBe('GET');
@@ -158,14 +164,15 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       // MAIR-557: the caller's first 8 active tasks; no status filter, so Project API leaves the completed ones out.
       const [tasks] = projectApi.calls(PROJECT.tasks);
       expect(Object.fromEntries(tasks.url.searchParams)).toEqual({ limit: '8', assigned_to: '2' });
-      const [calendar] = calendarApi.calls(CALENDAR.calendar);
-      const start = Date.parse(calendar.url.searchParams.get('start')!);
-      const end = Date.parse(calendar.url.searchParams.get('end')!);
+      const windows = calendarWindows();
+      const window = windows[windows.length - 1];
+      const start = Date.parse(window.start);
+      const end = Date.parse(window.end);
       // From 00:00:00 of today to 23:59:59 of today + 30, Paris time (a DST change shifts it by one hour).
       expect(Math.abs(end - start - (31 * DAY_MS - 1000))).toBeLessThanOrEqual(3_600_000);
     });
 
-    test('MAIR-525/MAIR-557/MAIR-825/MAIR-1106: the profile, the projects, the tasks, the events, the trainings and the unread total start in one parallel wave', async () => {
+    test('MAIR-525/MAIR-557/MAIR-825/MAIR-1106/MAIR-1177: the profile, the projects, the tasks, the events, the month of events, the trainings and the unread total start in one parallel wave', async () => {
       mockUpstreams({ projects: [projectListItem(1)] });
       // Each answer takes 80 ms: calls chained one after the other would arrive at least 80 ms apart.
       const arrivals: number[] = [];
@@ -181,7 +188,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       const response = await bootstrap(withClaims({ role: 'User' }));
 
       expect(response.status).toBe(200);
-      expect(arrivals).toHaveLength(6);
+      expect(arrivals).toHaveLength(7);
       expect(Math.max(...arrivals) - Math.min(...arrivals)).toBeLessThan(60);
     });
 
@@ -210,18 +217,18 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
         return upstreamCalls();
       };
 
-      // Profile, projects, tasks, events, trainings and unread messages: one call each, whatever the number of projects.
-      expect(await count(1)).toBe(6);
-      expect(await count(6)).toBe(6);
-      expect(await count(100)).toBe(6);
+      // Profile, projects, tasks, events, month of events, trainings and unread messages: one call each, whatever the number of projects.
+      expect(await count(1)).toBe(7);
+      expect(await count(6)).toBe(7);
+      expect(await count(100)).toBe(7);
     });
 
     test.each([
-      // 00:30 in Paris (CEST, UTC+2) is still 22:30 the day before in UTC.
-      ['summer time', '2026-03-31T22:30:00Z', '2026-03-31T22:00:00Z', '2026-05-01T21:59:59Z'],
-      // 00:15 in Paris (CET, UTC+1) is still 23:15 the day before in UTC, across a year boundary.
-      ['winter time', '2026-12-31T23:15:00Z', '2026-12-31T23:00:00Z', '2027-01-31T22:59:59Z'],
-    ])('asks Calendar API for the next 30 days of the Europe/Paris calendar (%s)', async (_label, now, start, end) => {
+      // 00:30 in Paris (CEST, UTC+2) is still 22:30 the day before in UTC; April ends on the 30th.
+      ['summer time', '2026-03-31T22:30:00Z', '2026-03-31T22:00:00Z', '2026-05-01T21:59:59Z', '2026-04-30T21:59:59Z'],
+      // 00:15 in Paris (CET, UTC+1) is still 23:15 the day before in UTC, across a year boundary: January has 31 days.
+      ['winter time', '2026-12-31T23:15:00Z', '2026-12-31T23:00:00Z', '2027-01-31T22:59:59Z', '2027-01-31T22:59:59Z'],
+    ])('asks Calendar API for the next 30 days and the current month of the Europe/Paris calendar (%s)', async (_label, now, start, end, monthEnd) => {
       at(now);
       try {
         mockUpstreams();
@@ -229,8 +236,8 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
         const response = await bootstrap();
 
         expect(response.status).toBe(200);
-        const [calendar] = calendarApi.calls(CALENDAR.calendar);
-        expect({ start: calendar.url.searchParams.get('start'), end: calendar.url.searchParams.get('end') }).toEqual({ start, end });
+        // On the 1st, the month and the next 30 days start together.
+        expect(calendarWindows()).toEqual([{ start, end: monthEnd }, { start, end }]);
       } finally {
         jest.useRealTimers();
       }
@@ -512,7 +519,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
 
       expect(response.status).toBe(200);
       expect(elearningApi.requests).toHaveLength(0);
-      expect(upstreamCalls()).toBe(5);
+      expect(upstreamCalls()).toBe(6);
     });
   });
 
@@ -759,7 +766,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
-      expect(mocks.map((mock) => mock.requests.length)).toEqual([1, 2, 1, 1, 1]);
+      expect(mocks.map((mock) => mock.requests.length)).toEqual([1, 2, 2, 1, 1]);
     });
   });
 
@@ -787,6 +794,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.status).toBe(200);
       expectDashboardContract(response);
       expect(response.body.events).toEqual([]);
+      expect(response.body.metrics.eventsThisMonth).toBeNull();
       expect(response.body.projects).toHaveLength(1);
       expect(response.body.tasks).toHaveLength(1);
       expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'unavailable', trainings: 'available', messages: 'available' });
@@ -878,6 +886,111 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.status).toBe(200);
       expectDashboardContract(response);
       expect(response.body.sources.calendar).toBe('unavailable');
+    });
+  });
+
+  describe('MAIR-1177 events of the current month', () => {
+    // 09:00-10:00 in Paris on `date` (`utc` is that hour in UTC: 08 in winter time, 07 in summer time).
+    const at9 = (id: number, date: string, utc = '07', recurrence: EventView['recurrence'] = null) =>
+      eventView(id, { start: `${date}T${utc}:00:00Z`, end: `${date}T${utc}:30:00Z`, recurrence });
+    // Calendar API answers the month read (end on the last day of the month) with `month`, the next 30 days with `next`.
+    const byWindow = (monthEnd: string, month: MockReply, next: MockReply = { body: calendarResult([]) }) =>
+      calendarApi.on('get', CALENDAR.calendar, ({ url }) => (url.searchParams.get('end') === monthEnd ? month : next));
+
+    test('MAIR-1177 counts the occurrences starting in the month, recurring ones expanded, past ones included', async () => {
+      mockUpstreams();
+      byWindow('2026-09-30T21:59:59Z', { body: calendarResult([
+        // Past one-off event of the month: counted, like the month view of the calendar.
+        at9(1, '2026-09-02'),
+        // Every Monday since August: 7, 14, 21 and 28 September.
+        at9(2, '2026-08-03', '07', { frequency: 'weekly', interval: 1 }),
+        // Every 10 days from the 25th of August, up to the 24th of September: 4 and 14 September (24 is excluded by the ends_on of the 23rd).
+        at9(3, '2026-08-25', '07', { frequency: 'daily', interval: 10, ends_on: '2026-09-23' }),
+        // Monthly on the 31st: September has none.
+        at9(4, '2026-08-31', '07', { frequency: 'monthly', interval: 1 }),
+        // Started at the end of August, still running in September: its start is not in the month.
+        eventView(5, { start: '2026-08-31T07:00:00Z', end: '2026-09-02T07:00:00Z' }),
+        // Unusable events: skipped (no id, an end or a start that is not an instant).
+        { name: 'Sans identifiant' } as unknown as EventView,
+        { ...at9(6, '2026-09-10', '07', { frequency: 'monthly', interval: 1 }), end: 'invalid' },
+        { ...at9(7, '2026-09-11'), start: 'not a date' },
+      ]), outOfContract: true });
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      expect(response.body.metrics).toEqual({ totalProjects: 0, eventsThisMonth: 7, eventsPeriod: { from: '2026-09-01', to: '2026-09-30' } });
+      expect(response.body.sources.calendar).toBe('available');
+    });
+
+    test.each([
+      // Summer time starts on 29 March 2026: the month starts at 23:00Z the day before and ends at 21:59:59Z.
+      ['a month starting in winter time and ending in summer time', '2026-03-15T12:00:00Z', '2026-02-28T23:00:00Z', '2026-03-31T21:59:59Z', '2026-03-01', '2026-03-31',
+        // Mondays at 09:00 in Paris: 08:00Z in winter time, the series keeps 09:00 Paris after the change (2, 9, 16, 23, 30).
+        [at9(1, '2026-03-02', '08', { frequency: 'weekly', interval: 1 }),
+          // 00:30 in Paris on the 1st (23:30Z the day before) and 23:30 on the 31st (21:30Z): both in March.
+          eventView(2, { start: '2026-02-28T23:30:00Z', end: '2026-02-28T23:45:00Z' }), eventView(3, { start: '2026-03-31T21:30:00Z', end: '2026-03-31T21:45:00Z' }),
+          // 00:30 in Paris on 1 April (22:30Z on 31 March) and 23:30 on 28 February (22:30Z): outside March.
+          eventView(4, { start: '2026-03-31T22:30:00Z', end: '2026-03-31T22:45:00Z' }), eventView(5, { start: '2026-02-28T22:30:00Z', end: '2026-02-28T22:45:00Z' })],
+        7],
+      // Winter time is back on 25 October 2026.
+      ['a month starting in summer time and ending in winter time', '2026-10-31T22:30:00Z', '2026-09-30T22:00:00Z', '2026-10-31T22:59:59Z', '2026-10-01', '2026-10-31',
+        // Every day of October at 09:00 in Paris.
+        [at9(1, '2026-10-01', '07', { frequency: 'daily', interval: 1 })],
+        31],
+    ])('MAIR-1177 reads and counts the Europe/Paris month across a DST change: %s', async (_label, now, start, end, from, to, events, count) => {
+      at(now);
+      try {
+        mockUpstreams();
+        byWindow(end, { body: calendarResult(events) });
+
+        const response = await bootstrap();
+
+        expect(response.status).toBe(200);
+        expectDashboardContract(response);
+        expect(calendarWindows()[0]).toEqual({ start, end });
+        expect(response.body.metrics).toMatchObject({ eventsThisMonth: count, eventsPeriod: { from, to } });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test.each<[string, MockReply]>([
+      ['a 500', textError(500, 'Erreur serveur')],
+      ['a body without the event list', { body: { events: 'none' }, outOfContract: true }],
+    ])('MAIR-1177 %s on the month read hides only the count, never a 502', async (_label, reply) => {
+      mockUpstreams();
+      byWindow('2026-09-30T21:59:59Z', reply, { body: calendarResult([eventView(1)]) });
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      expect(response.body.metrics).toEqual({ totalProjects: 0, eventsThisMonth: null, eventsPeriod: { from: '2026-09-01', to: '2026-09-30' } });
+      expect(response.body.events.map((event: { id: number }) => event.id)).toEqual([1]);
+      expect(response.body.sources.calendar).toBe('available');
+    });
+
+    test('MAIR-1177 an unreachable Calendar API gives a null count with the period, never a 502', async () => {
+      mockUpstreams({ projects: [projectListItem(1)], totalProjects: 3 });
+      process.env.CALENDAR_API_URL = await unreachableUrl();
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      expect(response.body.metrics).toEqual({ totalProjects: 3, eventsThisMonth: null, eventsPeriod: { from: '2026-09-01', to: '2026-09-30' } });
+    });
+
+    test('MAIR-1177 a 401 on the month read alone fails the whole answer', async () => {
+      mockUpstreams();
+      byWindow('2026-09-30T21:59:59Z', textError(401, 'Jeton expiré'));
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(401);
+      expectDashboardContract(response);
     });
   });
 });

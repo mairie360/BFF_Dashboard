@@ -1,4 +1,4 @@
-import { nextOccurrence, type CalendarSeries, type Recurrence } from '../src/occurrences';
+import { countOccurrences, nextOccurrence, parisMonth, type CalendarSeries, type Recurrence } from '../src/occurrences';
 
 // MAIR-563: the dashboard shows the next repetition of a recurring event, never an occurrence already over.
 // Now is Wednesday 2026-10-14 at 12:00 in Paris (CEST, UTC+2); the dashboard window ends on 2026-11-13.
@@ -72,5 +72,57 @@ describe('nextOccurrence (MAIR-563)', () => {
     const lateNow = new Date('2026-10-26T12:00:00Z');
     expect(nextOccurrence(series('2026-10-01', { frequency: 'weekly', interval: 1 }), '2026-11-25', lateNow))
       .toEqual({ date: '2026-10-29', time: '09:00' });
+  });
+});
+
+describe('parisMonth (MAIR-1177)', () => {
+  test.each([
+    ['the middle of a 30-day month', '2026-09-17T10:00:00Z', { from: '2026-09-01', to: '2026-09-30' }],
+    // 00:30 on 1 April in Paris is still 31 March in UTC.
+    ['the first minutes of a month in Paris', '2026-03-31T22:30:00Z', { from: '2026-04-01', to: '2026-04-30' }],
+    // 23:30 on 31 January in Paris (CET).
+    ['the last minutes of a month in Paris', '2027-01-31T22:30:00Z', { from: '2027-01-01', to: '2027-01-31' }],
+    ['February of a leap year', '2028-02-10T12:00:00Z', { from: '2028-02-01', to: '2028-02-29' }],
+    ['February of a common year', '2026-02-10T12:00:00Z', { from: '2026-02-01', to: '2026-02-28' }],
+  ])('MAIR-1177 gives the Europe/Paris calendar month at %s', (_label, now, month) => {
+    expect(parisMonth(new Date(now))).toEqual(month);
+  });
+});
+
+describe('countOccurrences (MAIR-1177)', () => {
+  const OCTOBER = { from: '2026-10-01', to: '2026-10-31' };
+  const count = (event: CalendarSeries) => countOccurrences(event, OCTOBER);
+
+  test('MAIR-1177 counts a one-off event of the month once, past or not, and none outside it', () => {
+    expect(count(series('2026-10-01'))).toBe(1);
+    expect(count(series('2026-10-31'))).toBe(1);
+    expect(count(series('2026-09-30'))).toBe(0);
+    expect(count(series('2026-11-01'))).toBe(0);
+  });
+
+  test('MAIR-1177 counts by the Paris day of the start, not the UTC one', () => {
+    // 00:30 on 1 October in Paris is 22:30Z on 30 September; 00:30 on 1 November (CET) is 23:30Z on 31 October.
+    expect(count({ start: '2026-09-30T22:30:00Z', end: '2026-09-30T23:00:00Z' })).toBe(1);
+    expect(count({ start: '2026-10-31T23:30:00Z', end: '2026-10-31T23:45:00Z' })).toBe(0);
+  });
+
+  test('MAIR-1177 does not count a multi-day event started before the month', () => {
+    expect(count(series('2026-09-29', null, '2026-10-02'))).toBe(0);
+  });
+
+  test.each<[string, string, Recurrence, number]>([
+    ['daily, started before the month', '2026-09-15', { frequency: 'daily', interval: 1 }, 31],
+    ['every 2 days from 1 October', '2026-10-01', { frequency: 'daily', interval: 2 }, 16],
+    // Thursdays of October: 1, 8, 15, 22, 29.
+    ['weekly on its first weekday', '2026-09-03', { frequency: 'weekly', interval: 1 }, 5],
+    // Mondays and Wednesdays every other week from the week of 28 September: 28/09+30/09 (out), 12, 14, 26, 28 October.
+    ['every other week on several days', '2026-09-28', { frequency: 'weekly', interval: 2, days_of_week: [1, 3] }, 4],
+    ['monthly on the same day', '2026-08-31', { frequency: 'monthly', interval: 1 }, 1],
+    ['every other month, October left out', '2026-07-31', { frequency: 'monthly', interval: 2 }, 0],
+    ['ending in the month (ends_on inclusive)', '2026-10-01', { frequency: 'daily', interval: 1, ends_on: '2026-10-10' }, 10],
+    ['ended before the month', '2026-09-01', { frequency: 'daily', interval: 1, ends_on: '2026-09-30' }, 0],
+    ['an unknown frequency (first occurrence only)', '2026-10-05', { frequency: 'yearly', interval: 1 }, 1],
+  ])('MAIR-1177 expands a recurring event: %s', (_label, first, recurrence, expected) => {
+    expect(count(series(first, recurrence))).toBe(expected);
   });
 });

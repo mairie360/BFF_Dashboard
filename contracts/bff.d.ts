@@ -208,6 +208,15 @@ export interface components {
             }[];
             metrics: {
                 totalProjects: number | null;
+                /** @description Occurrences of the user's events starting during `eventsPeriod` (recurring events expanded), like the month view of the calendar; null when Calendar API is unavailable */
+                eventsThisMonth: number | null;
+                /** @description Period counted by `eventsThisMonth` */
+                eventsPeriod: {
+                    /** @description First day of the current Europe/Paris calendar month (YYYY-MM-DD) */
+                    from: string;
+                    /** @description Last day of the current Europe/Paris calendar month (YYYY-MM-DD) */
+                    to: string;
+                };
             };
             sources: {
                 /** @enum {string} */

@@ -266,6 +266,7 @@ services:
       run /etc/newman/collection.json
       --environment /etc/newman/environment.json
       --env-var baseUrl=http://bff-dashboard:4007
+      --env-var calendarApiUrl=http://calendar-api:3002
       --env-var jwt_admin=${JWT_ADMIN:?JWT_ADMIN must be set, run ./integration_test.sh}
       --env-var jwt_agent=${JWT_AGENT:?JWT_AGENT must be set, run ./integration_test.sh}
       --env-var jwt_forged=${JWT_FORGED:?JWT_FORGED must be set, run ./integration_test.sh}
