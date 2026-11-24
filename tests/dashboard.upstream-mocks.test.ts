@@ -910,8 +910,10 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
         at9(4, '2026-08-31', '07', { frequency: 'monthly', interval: 1 }),
         // Started at the end of August, still running in September: its start is not in the month.
         eventView(5, { start: '2026-08-31T07:00:00Z', end: '2026-09-02T07:00:00Z' }),
-        // Unusable event: skipped.
+        // Unusable events: skipped (no id, an end or a start that is not an instant).
         { name: 'Sans identifiant' } as unknown as EventView,
+        { ...at9(6, '2026-09-10', '07', { frequency: 'monthly', interval: 1 }), end: 'invalid' },
+        { ...at9(7, '2026-09-11'), start: 'not a date' },
       ]), outOfContract: true });
 
       const response = await bootstrap();

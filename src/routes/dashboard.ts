@@ -213,11 +213,12 @@ router.get('/bootstrap', async (req, res) => {
     }).sort((a, b) => TRAINING_ORDER[a.status] - TRAINING_ORDER[b.status] || dueKey(a.dueDate) - dueKey(b.dueDate))
     : [];
   const profile = meResult.value;
-  // Unusable events are skipped, like in the list above.
+  // Unusable events (missing fields, a start or an end that is not an instant) are skipped, like in the list above.
   const eventsThisMonth = monthResult.status === 'fulfilled'
     ? monthResult.value.events.reduce<number>((total, raw) => {
       const parsed = CalendarEvent.safeParse(raw);
-      return parsed.success ? total + countOccurrences(parsed.data, month) : total;
+      if (!parsed.success || [parsed.data.start, parsed.data.end].some((instant) => Number.isNaN(Date.parse(instant)))) return total;
+      return total + countOccurrences(parsed.data, month);
     }, 0)
     : null;
 
