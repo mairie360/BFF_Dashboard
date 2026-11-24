@@ -879,7 +879,8 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       const response = await bootstrap();
 
       expect(response.status).toBe(200);
-      expect(mocks.map((mock) => mock.requests.length)).toEqual([1, 2, 2, 1, 1]);
+      // Core: the profile and the welcome tour state; Calendar: the next 30 days and the month.
+      expect(mocks.map((mock) => mock.requests.length)).toEqual([2, 2, 2, 1, 1]);
     });
   });
 

@@ -89,7 +89,7 @@ describe('token refusals of the contract operations', () => {
     it('only leaves the pinned operations public', () => {
         expect(operations.filter((operation) => !operation.secured).map((operation) => operation.label).sort())
             .toEqual([...PUBLIC_OPERATIONS].sort());
-        expect(secured.map((operation) => operation.label)).toEqual(['GET /dashboard/bootstrap']);
+        expect(secured.map((operation) => operation.label)).toEqual(['GET /dashboard/bootstrap', 'PUT /dashboard/onboarding']);
     });
 
     it.each(secured.map((operation) => [operation.label, operation] as const))(
