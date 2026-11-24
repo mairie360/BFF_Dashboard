@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `bff-dashboard` is a Backend-for-Frontend for the Mairie360 Dashboard screens (web service:
 `mairie360/Dashboard_Web_Service`). It aggregates read-only data from four APIs (Core,
-Project, Calendar, ELearning) into one `/dashboard/bootstrap` payload. It **never calls another BFF** (MAIR-525). It has **no database and performs no
-business mutations** — it only adapts upstream data and enforces session rules.
+Project, Calendar, ELearning) into one `/dashboard/bootstrap` payload. It **never calls another BFF** (MAIR-525). It has **no database and performs one
+business mutation only**, `PUT /dashboard/onboarding` (the welcome tour is done, relayed to Core API) — otherwise it
+adapts upstream data and enforces session rules.
 
 ## Commands
 
@@ -95,7 +96,7 @@ a second Calendar `GET /api/v1/calendar` over the current Paris calendar month (
 (occurrence starts of the month, recurrences expanded by `countOccurrences`, past ones included, like the calendar front's
 month view) over `metrics.eventsPeriod` `{ from, to }`: its failure only sets the count to `null` (a 401 still fails the answer),
 and ELearning API `GET /api/v1/formations/catalog/` (MAIR-825: the caller's trainings, `training-<id>`, `Error` ones skipped,
-unfinished first then done, soonest `deadline` first inside each group (`dueDate`, MAIR-1110), capped at 3). MAIR-1106 adds `unreadMessages` (Message API `GET /api/v1/unread/`, optional `MESSAGE_API_URL`, `null` + `sources.messages = "unavailable"` when it fails). MAIR-825 also adds `userLastName` (Core `last_name`), `userRole` (Core's `role`,
+unfinished first then done, soonest `deadline` first inside each group (`dueDate`, MAIR-1110), capped at 3). MAIR-1106 adds `unreadMessages` (Message API `GET /api/v1/unread/`, optional `MESSAGE_API_URL`, `null` + `sources.messages = "unavailable"` when it fails). MAIR-1176 adds `onboardingCompleted` (Core `GET /api/v1/user/me/preferences/` in the same wave: `onboarding_completed === true`, `null` on any failure but a 401, never a 502) and `PUT /dashboard/onboarding` (Core `PATCH` of the same route with `{ onboarding_completed: true }` only, 204, idempotent, retried once). MAIR-825 also adds `userLastName` (Core `last_name`), `userRole` (Core's `role`,
 else the token's `role` claim, `null` when neither) and `communeName` (`MAIRIE_NAME`, trimmed, `null` when unset). Only
 additive fields: existing ones keep their shape. `ELEARNING_API_URL` and `MAIRIE_NAME` are **optional** and not in
 `UPSTREAM_SERVICES` (deployments do not set them yet): an unset ELearning URL degrades to `sources.trainings =
@@ -110,7 +111,7 @@ the token (`sessionRole`, MAIR-529) or Core's profile for a token without it. A 
 any other upstream failure degrades that section to `sources.<x> = "unavailable"` and
 `metrics.totalProjects = null` rather than inventing data; an unusable event is skipped. Output is capped at 6
 projects / 8 tasks / 6 events. The upstream-mock tests check the single wave (arrival times) and a constant number
-of calls (7: Core, 2 Project, 2 Calendar, ELearning, Message) for 1, 6 and 100 visible projects.
+of calls (8: 2 Core, 2 Project, 2 Calendar, ELearning, Message) for 1, 6 and 100 visible projects.
 
 ### Telemetry (MAIR-504)
 

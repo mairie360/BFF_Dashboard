@@ -39,6 +39,7 @@ export const DashboardBootstrapSchema = registry.register('DashboardBootstrap', 
   communeName: z.string().nullable().openapi({ description: 'Name of the municipality of the instance (`MAIRIE_NAME`), null when not configured' }),
   trainings: z.array(Training).openapi({ description: 'The first 3 trainings of the user from ELearning API: unfinished first (in progress, then to do), then done; soonest due date first inside each group, none last' }),
   unreadMessages: z.number().int().nonnegative().nullable().openapi({ description: "Unread messages of the user over their chats (Message API), for the Messagerie badge; null when Message API is unavailable (`sources.messages`)" }),
+  onboardingCompleted: z.boolean().nullable().openapi({ description: 'Whether the user finished or skipped the welcome tour (Core API preferences): false shows the tour, true never again; null when Core API could not tell (show nothing)' }),
 }));
 
 // What the dashboard reads from each API answer. A body that does not match (including a non-JSON body, which axios
@@ -72,6 +73,8 @@ const CatalogPage = z.object({
   })),
 });
 const UnreadTotal = z.object({ unread_count: z.number().int().nonnegative() });
+// Core answers `true` once the welcome tour is done, `false` while it is not (nullable in its contract).
+const Preferences = z.object({ onboarding_completed: z.boolean().nullish() });
 // Only a refused session is relayed (the one upstream status the contract declares); anything else is a 502.
 // Idempotent reads: retried once on a transient failure.
 const READ = { declared: [401], retry: true } as const;
@@ -142,6 +145,12 @@ function readUnread(req: Request) {
     (await messageApi.getUnreadTotal(asCaller('MESSAGE_API', req))).data), READ);
 }
 
+/** Whether the caller is done with the welcome tour, from Core's preferences. */
+function readOnboarding(req: Request) {
+  return callUpstream('CORE_API', async () => Preferences.parse(
+    (await coreApi.getMyPreferences(asCaller('CORE_API', req))).data), READ);
+}
+
 /** The instance's municipality name (`MAIRIE_NAME`, the variable Core uses in its e-mails), optional. */
 function communeName(): string | null {
   return process.env.MAIRIE_NAME?.trim() || null;
@@ -159,10 +168,10 @@ router.get('/bootstrap', async (req, res) => {
   // The current Europe/Paris calendar month, for the events indicator (read on its own: its failure only hides the count).
   const month = parisMonth(now);
   const roles = tokenRole !== undefined ? Promise.resolve([tokenRole]) : me.then((profile) => profile.roles ?? (profile.role ? [profile.role] : []));
-  const [meResult, projectsResult, tasksResult, calendarResult, trainingsResult, unreadResult, monthResult] = await Promise.allSettled([
-    me, readProjects(req), readTasks(req, roles), readEvents(req, window), readTrainings(req), readUnread(req), readEvents(req, month),
+  const [meResult, projectsResult, tasksResult, calendarResult, trainingsResult, unreadResult, monthResult, onboardingResult] = await Promise.allSettled([
+    me, readProjects(req), readTasks(req, roles), readEvents(req, window), readTrainings(req), readUnread(req), readEvents(req, month), readOnboarding(req),
   ]);
-  for (const result of [projectsResult, tasksResult, calendarResult, trainingsResult, unreadResult, monthResult]) {
+  for (const result of [projectsResult, tasksResult, calendarResult, trainingsResult, unreadResult, monthResult, onboardingResult]) {
     if (result.status === 'rejected' && result.reason instanceof HttpError && result.reason.status === 401) throw result.reason;
   }
   // The profile is required: its failure is the answer.
@@ -234,6 +243,8 @@ router.get('/bootstrap', async (req, res) => {
     trainings: trainings.slice(0, TRAININGS_SHOWN),
     // Message API is optional too: not configured, unreachable or failing, the badge is left out.
     unreadMessages: unreadResult.status === 'fulfilled' ? unreadResult.value.unread_count : null,
+    // Optional as well: when Core cannot tell, the front shows no tour rather than one the user may have done.
+    onboardingCompleted: onboardingResult.status === 'fulfilled' ? onboardingResult.value.onboarding_completed === true : null,
     metrics: { totalProjects: page ? page.total : null, eventsThisMonth, eventsPeriod: month },
     sources: {
       projects: page ? 'available' : 'unavailable',
@@ -243,5 +254,21 @@ router.get('/bootstrap', async (req, res) => {
       messages: unreadResult.status === 'fulfilled' ? 'available' : 'unavailable',
     },
   }));
+});
+registry.registerPath({ method: 'put', path: '/dashboard/onboarding', summary: 'Mark the welcome tour as done',
+  description: 'Records in Core API that the signed-in user finished or skipped the welcome tour, so `/dashboard/bootstrap` answers `onboardingCompleted: true` from then on. No body; idempotent.',
+  responses: {
+    204: { description: 'Recorded (also when it already was)' },
+    401: { description: 'Missing or invalid session, or session refused by Core API', content: { 'application/json': { schema: ErrorSchema } } },
+    429: { description: 'Core API rate limit reached: retry after the Retry-After header (seconds)', content: { 'application/json': { schema: ErrorSchema } } },
+    502: { description: 'Core API unreachable, failed or answered an invalid body: nothing is recorded, the tour shows again next time', content: { 'application/json': { schema: ErrorSchema } } },
+    503: { description: 'Core API is not configured', content: { 'application/json': { schema: ErrorSchema } } },
+  } });
+
+router.put('/onboarding', async (req, res) => {
+  // Setting `true` again changes nothing, so a transient failure is retried once like a read.
+  await callUpstream('CORE_API', async () => Preferences.parse(
+    (await coreApi.patchMyPreferences({ onboarding_completed: true }, asCaller('CORE_API', req))).data), READ);
+  res.status(204).end();
 });
 export default router;

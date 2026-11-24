@@ -24,7 +24,7 @@
     "@eslint/js": "10.0.1",
     "@mairie360/bff-dashboard-openapi": "2.0.0",
     "@mairie360/calendar-api-openapi": "1.2.0",
-    "@mairie360/core-api-openapi": "2.2.0",
+    "@mairie360/core-api-openapi": "0.0.0-dev-07b3d8c",
     "@mairie360/elearning-api-openapi": "0.0.0-dev-5854e70",
     "@mairie360/message-api-openapi": "0.0.0-dev-7ea1119",
     "@mairie360/project-api-openapi": "1.2.0",

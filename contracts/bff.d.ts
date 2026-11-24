@@ -155,6 +155,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboard/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Mark the welcome tour as done
+         * @description Records in Core API that the signed-in user finished or skipped the welcome tour, so `/dashboard/bootstrap` answers `onboardingCompleted: true` from then on. No body; idempotent.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Recorded (also when it already was) */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing or invalid session, or session refused by Core API */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Core API rate limit reached: retry after the Retry-After header (seconds) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Core API unreachable, failed or answered an invalid body: nothing is recorded, the tour shows again next time */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Core API is not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -250,6 +323,8 @@ export interface components {
             }[];
             /** @description Unread messages of the user over their chats (Message API), for the Messagerie badge; null when Message API is unavailable (`sources.messages`) */
             unreadMessages: number | null;
+            /** @description Whether the user finished or skipped the welcome tour (Core API preferences): false shows the tour, true never again; null when Core API could not tell (show nothing) */
+            onboardingCompleted: boolean | null;
         };
     };
     responses: never;

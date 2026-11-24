@@ -812,6 +812,294 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Welcome tour (MAIR-1176)",
+      "item": [
+        {
+          "name": "MAIR-1176 A new agent has not done the welcome tour",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_agent}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "bootstrap"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"The tour state is a boolean read from Core: false for the fresh seeded agent\", function () {",
+                  "    pm.expect(pm.response.json().onboardingCompleted).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "MAIR-1176 Marking the tour done without a session is rejected",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/onboarding",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "onboarding"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test(\"Body is the error envelope\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.error, 'error').to.be.an('object');",
+                  "    pm.expect(body.error.code).to.eql('UNAUTHORIZED');",
+                  "    pm.expect(body.error.message).to.be.a('string');",
+                  "    pm.expect(body.error.details).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "MAIR-1176 Marking the tour done with a forged token is rejected",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_forged}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/onboarding",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "onboarding"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test(\"Body is the error envelope\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.error, 'error').to.be.an('object');",
+                  "    pm.expect(body.error.code).to.eql('UNAUTHORIZED');",
+                  "    pm.expect(body.error.message).to.be.a('string');",
+                  "    pm.expect(body.error.details).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "MAIR-1176 The agent finishes the welcome tour",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_agent}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/onboarding",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "onboarding"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204 without body\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "    pm.expect(pm.response.text()).to.eql('');",
+                  "});",
+                  "pm.test(\"Answer is not cacheable\", function () {",
+                  "    pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "MAIR-1176 Marking the tour done again is idempotent",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_agent}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/onboarding",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "onboarding"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "MAIR-1176 The dashboard remembers the tour is done",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_agent}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "bootstrap"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"The tour is done, the rest of the dashboard is unchanged\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.onboardingCompleted).to.eql(true);",
+                  "    pm.expect(body.userFirstName).to.eql('Perf');",
+                  "    pm.expect({ projects: body.sources.projects, tasks: body.sources.tasks, calendar: body.sources.calendar }).to.eql({ projects: 'available', tasks: 'available', calendar: 'available' });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "MAIR-1176 Another account keeps its own tour state",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_admin}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "bootstrap"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"The administrator has not done the tour\", function () {",
+                  "    pm.expect(pm.response.json().onboardingCompleted).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
     }
   ]
 }

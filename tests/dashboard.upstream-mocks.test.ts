@@ -9,7 +9,7 @@ import type { EventView } from '@mairie360/calendar-api-openapi/model';
 import type { CatalogFormation } from '@mairie360/elearning-api-openapi/model';
 import type { ProjectListItemView, TaskListItemView } from '@mairie360/project-api-openapi/model';
 import {
-  calendarApiUrls, calendarResult, catalogFormation, catalogResult, coreApiUrls, coreMe, elearningApiUrls, eventView, projectApiUrls,
+  calendarApiUrls, calendarResult, catalogFormation, catalogResult, coreApiUrls, coreMe, corePreferences, elearningApiUrls, eventView, projectApiUrls,
   projectListItem, projectsResult, sessionToken, taskListItem, taskListResult,
 } from './support/upstream-fixtures';
 import { captureLogs } from './support/logs';
@@ -28,7 +28,7 @@ const elearningApi = new ContractMockServer('ELEARNING_API', loadOrvalContract('
 const messageApi = new ContractMockServer('MESSAGE_API', loadOrvalContract('@mairie360/message-api-openapi'));
 const mocks = [coreApi, projectApi, calendarApi, elearningApi, messageApi];
 // Templates of the upstream contracts (mock keys); the concrete expected paths come from the URL helpers.
-const CORE = { me: '/api/v1/user/me/' } as const;
+const CORE = { me: '/api/v1/user/me/', preferences: '/api/v1/user/me/preferences/' } as const;
 const PROJECT = { projects: '/api/v1/projects/', tasks: '/api/v1/tasks/' } as const;
 const CALENDAR = { calendar: '/api/v1/calendar' } as const;
 const ELEARNING = { catalog: '/api/v1/formations/catalog/' } as const;
@@ -66,10 +66,13 @@ afterEach(() => {
 
 type Scenario = {
   projects?: ProjectListItemView[]; totalProjects?: number; tasks?: TaskListItemView[]; events?: EventView[];
-  roles?: string[]; trainings?: CatalogFormation[]; unread?: number; delayMs?: number;
+  roles?: string[]; trainings?: CatalogFormation[]; unread?: number; onboarding?: boolean | null; delayMs?: number;
 };
-function mockUpstreams({ projects = [], totalProjects, tasks = [], events = [], roles = ['User'], trainings = [], unread = 0, delayMs }: Scenario = {}) {
+function mockUpstreams({ projects = [], totalProjects, tasks = [], events = [], roles = ['User'], trainings = [], unread = 0, onboarding = true, delayMs }: Scenario = {}) {
   coreApi.on('get', CORE.me, { body: coreMe({ roles, role: roles[0] ?? '' }), delayMs });
+  coreApi.on('get', CORE.preferences, { body: corePreferences({ onboarding_completed: onboarding }), delayMs });
+  // Like Core: the stored state after the update.
+  coreApi.on('patch', CORE.preferences, ({ body }) => ({ body: corePreferences({ onboarding_completed: (body as { onboarding_completed?: boolean | null }).onboarding_completed ?? false }), delayMs }));
   projectApi.on('get', PROJECT.projects, { body: projectsResult(projects, totalProjects), delayMs });
   // Like Project API: the active tasks of every visible project (`tasks` holds those), `assigned_to` and `limit`.
   projectApi.on('get', PROJECT.tasks, ({ url }) => {
@@ -96,6 +99,13 @@ function expectDashboardContract(response: request.Response) {
     const published = publishedDashboardContract.responseSchema(publishedDashboardContract.match('get', '/dashboard/bootstrap')!, response.status);
     expect(publishedDashboardContract.validate(published.schema!, response.body)).toEqual([]);
   }
+}
+
+function expectOnboardingContract(response: request.Response) {
+  const match = dashboardContract.match('put', '/dashboard/onboarding')!;
+  const { documented, schema } = dashboardContract.responseSchema(match, response.status);
+  expect({ status: response.status, documented }).toEqual({ status: response.status, documented: true });
+  if (schema) expect(dashboardContract.validate(schema, response.body)).toEqual([]);
 }
 
 const upstreamCalls = () => mocks.reduce((total, mock) => total + mock.requests.length, 0);
@@ -136,6 +146,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
         communeName: null,
         trainings: [{ id: 'training-5', title: 'Accueil du public', status: 'in-progress', completedModules: 1, totalModules: 3, progress: 33, dueDate: null }],
         unreadMessages: 4,
+        onboardingCompleted: true,
       });
       expect(response.headers['cache-control']).toBe('no-store');
     });
@@ -146,7 +157,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
 
       await bootstrap();
 
-      expect(coreApi.requests.map((call) => call.url.pathname)).toEqual([coreApiUrls.getGetMeUrl()]);
+      expect(coreApi.requests.map((call) => call.url.pathname).sort()).toEqual([coreApiUrls.getGetMeUrl(), coreApiUrls.getGetMyPreferencesUrl()].sort());
       expect(projectApi.requests.map((call) => call.url.pathname).sort())
         .toEqual([projectApiUrls.getGetProjectsUrl(), projectApiUrls.getGetTasksUrl()].sort());
       // The next 30 days and the current month.
@@ -172,7 +183,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(Math.abs(end - start - (31 * DAY_MS - 1000))).toBeLessThanOrEqual(3_600_000);
     });
 
-    test('MAIR-525/MAIR-557/MAIR-825/MAIR-1106/MAIR-1177: the profile, the projects, the tasks, the events, the month of events, the trainings and the unread total start in one parallel wave', async () => {
+    test('MAIR-525/MAIR-557/MAIR-825/MAIR-1106/MAIR-1177/MAIR-1176: the profile, the projects, the tasks, the events, the month of events, the trainings, the unread total and the tour state start in one parallel wave', async () => {
       mockUpstreams({ projects: [projectListItem(1)] });
       // Each answer takes 80 ms: calls chained one after the other would arrive at least 80 ms apart.
       const arrivals: number[] = [];
@@ -183,12 +194,13 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       calendarApi.on('get', CALENDAR.calendar, () => slow(calendarResult([])));
       elearningApi.on('get', ELEARNING.catalog, () => slow(catalogResult([])));
       messageApi.on('get', MESSAGE.unread, () => slow({ unread_count: 0, unread_chats: 0 }));
+      coreApi.on('get', CORE.preferences, () => slow(corePreferences()));
 
       // The role is in the token (MAIR-529): the tasks do not wait for Core's profile.
       const response = await bootstrap(withClaims({ role: 'User' }));
 
       expect(response.status).toBe(200);
-      expect(arrivals).toHaveLength(7);
+      expect(arrivals).toHaveLength(8);
       expect(Math.max(...arrivals) - Math.min(...arrivals)).toBeLessThan(60);
     });
 
@@ -217,10 +229,10 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
         return upstreamCalls();
       };
 
-      // Profile, projects, tasks, events, month of events, trainings and unread messages: one call each, whatever the number of projects.
-      expect(await count(1)).toBe(7);
-      expect(await count(6)).toBe(7);
-      expect(await count(100)).toBe(7);
+      // Profile, projects, tasks, events, month of events, trainings, unread messages and tour state: one call each, whatever the number of projects.
+      expect(await count(1)).toBe(8);
+      expect(await count(6)).toBe(8);
+      expect(await count(100)).toBe(8);
     });
 
     test.each([
@@ -519,7 +531,7 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
 
       expect(response.status).toBe(200);
       expect(elearningApi.requests).toHaveLength(0);
-      expect(upstreamCalls()).toBe(6);
+      expect(upstreamCalls()).toBe(7);
     });
   });
 
@@ -566,6 +578,107 @@ describe('GET /dashboard/bootstrap with contract-driven API mocks', () => {
       expect(response.body.sources).toEqual({ projects: 'available', tasks: 'available', calendar: 'available', trainings: 'available', messages: 'unavailable' });
       expect(response.body.projects).toHaveLength(1);
       expect(response.body.trainings).toHaveLength(1);
+    });
+  });
+
+  describe('MAIR-1176 welcome tour state', () => {
+    test.each([
+      ['a new account (false in Core)', false, false],
+      ['a tour already done', true, true],
+      ['an empty state', null, false],
+    ])('relays %s as onboardingCompleted with the session', async (_label, stored, expected) => {
+      mockUpstreams({ onboarding: stored });
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      expect(response.body.onboardingCompleted).toBe(expected);
+      const [call] = coreApi.calls(CORE.preferences);
+      expect(call.headers.authorization).toBe(SESSION);
+    });
+
+    test.each([
+      ['a 500', () => { coreApi.on('get', CORE.preferences, textError(500, 'Erreur serveur')); }],
+      ['a 429', () => { coreApi.on('get', CORE.preferences, { ...textError(429, 'Too many requests'), headers: { 'Retry-After': '30' } }); }],
+      ['a body that is not JSON', () => { coreApi.on('get', CORE.preferences, { raw: '<html>proxy error</html>', outOfContract: true }); }],
+      ['a tour state of the wrong type', () => { coreApi.on('get', CORE.preferences, { body: { onboarding_completed: 'yes' }, outOfContract: true }); }],
+    ])('%s from Core preferences gives a null tour state, never a 502, and keeps every other section', async (_label, override) => {
+      mockUpstreams({ projects: [projectListItem(1)], events: [eventView(1)], onboarding: false });
+      override();
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(200);
+      expectDashboardContract(response);
+      expect(response.body.onboardingCompleted).toBeNull();
+      expect(response.body.userFirstName).toBe('Alice');
+      expect(response.body.projects).toHaveLength(1);
+      expect(response.body.sources.projects).toBe('available');
+    });
+
+    test('a 401 from Core preferences fails the whole answer like any refused session', async () => {
+      mockUpstreams();
+      coreApi.on('get', CORE.preferences, textError(401, 'Jeton expiré'));
+
+      const response = await bootstrap();
+
+      expect(response.status).toBe(401);
+      expectDashboardContract(response);
+    });
+
+    test('PUT /dashboard/onboarding relays `true` to Core preferences with the session and answers 204', async () => {
+      mockUpstreams({ onboarding: false });
+
+      const response = await request(app).put('/dashboard/onboarding').set('Authorization', SESSION);
+
+      expect(response.status).toBe(204);
+      expect(response.text).toBe('');
+      expectOnboardingContract(response);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(coreApi.requests).toHaveLength(1);
+      const [call] = coreApi.calls(CORE.preferences);
+      expect(call.method).toBe('PATCH');
+      expect(call.headers.authorization).toBe(SESSION);
+      // Only the tour state: the other preferences stay as the user saved them.
+      expect(call.body).toEqual({ onboarding_completed: true });
+    });
+
+    test('PUT /dashboard/onboarding twice answers 204 twice (idempotent)', async () => {
+      mockUpstreams({ onboarding: false });
+
+      const first = await request(app).put('/dashboard/onboarding').set('Authorization', SESSION);
+      const second = await request(app).put('/dashboard/onboarding').set('Authorization', SESSION);
+
+      expect([first.status, second.status]).toEqual([204, 204]);
+      expect(coreApi.calls(CORE.preferences).map((call) => call.body)).toEqual([{ onboarding_completed: true }, { onboarding_completed: true }]);
+    });
+
+    test('PUT /dashboard/onboarding without a session is refused with 401 before calling Core', async () => {
+      mockUpstreams();
+
+      const response = await request(app).put('/dashboard/onboarding');
+
+      expect(response.status).toBe(401);
+      expectOnboardingContract(response);
+      expect(response.body).toEqual({ error: { code: 'UNAUTHORIZED', message: 'Invalid session.', details: [] } });
+      expect(upstreamCalls()).toBe(0);
+    });
+
+    test.each<[string, () => Promise<void> | void, number]>([
+      ['a refused session', () => { coreApi.on('patch', CORE.preferences, textError(401, 'Jeton expiré')); }, 401],
+      ['a server error', () => { coreApi.on('patch', CORE.preferences, textError(500, 'Upstream secret detail')); }, 502],
+      ['an unreachable Core API', async () => { process.env.CORE_API_URL = await unreachableUrl(); }, 502],
+      ['Core API not configured', () => { delete process.env.CORE_API_URL; }, 503],
+    ])('PUT /dashboard/onboarding maps %s to %i without relaying the upstream body', async (_label, override, status) => {
+      mockUpstreams();
+      await override();
+
+      const response = await request(app).put('/dashboard/onboarding').set('Authorization', SESSION);
+
+      expect(response.status).toBe(status);
+      expectOnboardingContract(response);
+      expect(JSON.stringify(response.body)).not.toMatch(/secret/);
     });
   });
 

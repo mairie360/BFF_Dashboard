@@ -14,6 +14,7 @@ Business domain: Dashboard.
 
 - Personalized welcome using the first name supplied by Core API.
 - Dashboard V2 (MAIR-825): the last name and the role of the user (Core API profile, else the `role` claim of the token), the name of the municipality (`MAIRIE_NAME`) and up to three trainings of the user from ELearning API (unfinished first, then the soonest due date, with `dueDate`, MAIR-1110), and the number of unread messages for the Messagerie badge (`unreadMessages`, Message API, MAIR-1106).
+- Welcome tour: `onboardingCompleted` (Core API preferences) is `false` until the user finishes or skips it, then `true`; `PUT /dashboard/onboarding` records it; `null` when Core API cannot tell.
 - Overview of six projects, up to eight unfinished tasks and six events within the next 30 days (Europe/Paris calendar).
 - Indicators: `metrics.totalProjects` (every visible project, like the Projects list) and `metrics.eventsThisMonth`, the occurrences of the user's events starting in the current Europe/Paris calendar month (recurring events expanded, past ones included, like the month view of the calendar), over `metrics.eventsPeriod` (`from` / `to`, first and last day). Each is `null` when its API is unavailable.
 - Explicit source-availability indicators and a nullable project count.

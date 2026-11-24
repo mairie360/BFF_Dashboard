@@ -390,6 +390,13 @@
             ],
             "minimum": 0,
             "description": "Unread messages of the user over their chats (Message API), for the Messagerie badge; null when Message API is unavailable (`sources.messages`)"
+          },
+          "onboardingCompleted": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the user finished or skipped the welcome tour (Core API preferences): false shows the tour, true never again; null when Core API could not tell (show nothing)"
           }
         },
         "required": [
@@ -403,7 +410,8 @@
           "userRole",
           "communeName",
           "trainings",
-          "unreadMessages"
+          "unreadMessages",
+          "onboardingCompleted"
         ]
       }
     },
@@ -501,6 +509,57 @@
           },
           "503": {
             "description": "An upstream API is not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/onboarding": {
+      "put": {
+        "summary": "Mark the welcome tour as done",
+        "description": "Records in Core API that the signed-in user finished or skipped the welcome tour, so `/dashboard/bootstrap` answers `onboardingCompleted: true` from then on. No body; idempotent.",
+        "responses": {
+          "204": {
+            "description": "Recorded (also when it already was)"
+          },
+          "401": {
+            "description": "Missing or invalid session, or session refused by Core API",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Core API rate limit reached: retry after the Retry-After header (seconds)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Core API unreachable, failed or answered an invalid body: nothing is recorded, the tour shows again next time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Core API is not configured",
             "content": {
               "application/json": {
                 "schema": {

@@ -11,8 +11,9 @@ import { createCoverage } from '/coverage.js';
 // `operations_uncovered` threshold when a handler ends without sending its request. Adding a route
 // to the BFF therefore means adding its handler here.
 //
-// The BFF only exposes reads (/health, /check_apis and the /dashboard/bootstrap aggregation, which
-// reads Core API, Project API and Calendar API in one parallel wave, MAIR-525). Two scenarios:
+// The BFF exposes reads (/health, /check_apis and the /dashboard/bootstrap aggregation, which
+// reads Core API, Project API and Calendar API in one parallel wave, MAIR-525) and one idempotent
+// write relayed to Core API (PUT /dashboard/onboarding, the welcome tour is done). Two scenarios:
 // - `reads`: `coverage.run()` calls every handler once per iteration as a random seeded agent, so it
 //   carries the coverage gate;
 // - `bootstrap_rush`: `GET /dashboard/bootstrap` at a fixed arrival rate, failing on any dropped
@@ -95,12 +96,16 @@ const coverage = createCoverage({
       'bootstrap 200': (r) => r.status === 200,
       'bootstrap is the agent dashboard': isAgentDashboard,
     }),
+  // The welcome tour is marked done (idempotent: the seeded agents may already be done).
+  'PUT /dashboard/onboarding': ({ request }) =>
+    check(request(), { 'onboarding 204': (r) => r.status === 204 }),
 });
 
 // p(95) budget of an operation, per family.
 function budgetOf({ op }) {
   if (op === 'GET /health') return 50; // process probe
   if (op === 'GET /check_apis') return 200; // -> the three upstream BFFs
+  if (op === 'PUT /dashboard/onboarding') return 500; // one Core API write
   return 1000; // aggregation: BFF + 3 upstream BFFs + project details
 }
 

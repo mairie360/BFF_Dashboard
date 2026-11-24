@@ -11,6 +11,7 @@ Les chemins sont relatifs au BFF. Les proxies web conservent méthode, paramètr
 | GET | `/health` | 200 OK |
 | GET | `/check_apis` | 200 / 502 `CheckApisResponse` (`core_api`, `project_api`, `calendar_api`) |
 | GET | `/dashboard/bootstrap` | 200 DashboardBootstrap |
+| PUT | `/dashboard/onboarding` | 204 (visite de bienvenue terminée) |
 
 ## Mise à jour et validation
 

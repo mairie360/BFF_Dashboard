@@ -3,7 +3,7 @@ import { eddsaToken } from './session-keys';
 import { getCalendarAPIMairie360 } from '@mairie360/calendar-api-openapi/endpoints/calendarAPIMairie360';
 import { EventCategory, EventVisibility, type EventView, type GetCalendarResultView } from '@mairie360/calendar-api-openapi/model';
 import { getCoreAPIMairie360 } from '@mairie360/core-api-openapi/endpoints/coreAPIMairie360';
-import type { GetMeResponseView } from '@mairie360/core-api-openapi/model';
+import type { GetMeResponseView, UserPreferences } from '@mairie360/core-api-openapi/model';
 import { getELearningAPIMairie360 } from '@mairie360/elearning-api-openapi/endpoints/eLearningAPIMairie360';
 import { type CatalogFormation, type CatalogModule, type GetCatalogResultView, Status } from '@mairie360/elearning-api-openapi/model';
 import { getProjectAPIMairie360 } from '@mairie360/project-api-openapi/endpoints/projectAPIMairie360';
@@ -33,6 +33,15 @@ export function coreMe(fields: Partial<GetMeResponseView> = {}): GetMeResponseVi
   return {
     first_name: 'Alice', last_name: 'Martin', email: 'alice.martin@mairie.test', phone: null, status: 'active',
     role: 'User', roles: ['User'], groups: [{ id: 1, name: 'Service urbanisme', owner_id: 1, description: null }],
+    ...fields,
+  };
+}
+
+/** Body of Core `GET` / `PATCH /api/v1/user/me/preferences/`: nothing saved but the welcome tour state. */
+export function corePreferences(fields: Partial<UserPreferences> = {}): UserPreferences {
+  return {
+    theme: null, font_family: null, font_size: null, density: null, language: null, timezone: null, date_format: null,
+    home_page: null, auto_open_notifications: null, autosave: null, onboarding_completed: null,
     ...fields,
   };
 }
