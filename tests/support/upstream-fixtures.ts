@@ -33,6 +33,8 @@ export function coreMe(fields: Partial<GetMeResponseView> = {}): GetMeResponseVi
   return {
     first_name: 'Alice', last_name: 'Martin', email: 'alice.martin@mairie.test', phone: null, status: 'active',
     role: 'User', roles: ['User'], groups: [{ id: 1, name: 'Service urbanisme', owner_id: 1, description: null }],
+    // Modules the role opens (Core >= 0.0.0-dev-07b3d8c answers them; the dashboard does not read them).
+    modules: ['dashboard', 'projects'],
     ...fields,
   };
 }
