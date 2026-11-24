@@ -339,6 +339,11 @@
                   "    pm.expect(body.communeName === null || typeof body.communeName === 'string', 'communeName is a string or null').to.eql(true);",
                   "    pm.expect(body.metrics.totalProjects).to.be.a('number');",
                   "    pm.expect(body.metrics.totalProjects).to.be.at.least(body.projects.length);",
+                  "    // The events indicator covers the current Europe/Paris calendar month.",
+                  "    pm.expect(body.metrics.eventsThisMonth).to.be.a('number').and.to.be.at.least(0);",
+                  "    pm.expect(body.metrics.eventsPeriod.from).to.match(/^\\d{4}-\\d{2}-01$/);",
+                  "    pm.expect(body.metrics.eventsPeriod.to).to.match(/^\\d{4}-\\d{2}-(28|29|30|31)$/);",
+                  "    pm.expect(body.metrics.eventsPeriod.to.slice(0, 7)).to.eql(body.metrics.eventsPeriod.from.slice(0, 7));",
                   "    body.projects.forEach((project) => {",
                   "        pm.expect(project.id).to.match(/^project-\\d+$/);",
                   "        pm.expect(project.status).to.be.oneOf(['todo', 'in-progress', 'review', 'done']);",
@@ -500,6 +505,11 @@
                   "    pm.expect(body.communeName === null || typeof body.communeName === 'string', 'communeName is a string or null').to.eql(true);",
                   "    pm.expect(body.metrics.totalProjects).to.be.a('number');",
                   "    pm.expect(body.metrics.totalProjects).to.be.at.least(body.projects.length);",
+                  "    // The events indicator covers the current Europe/Paris calendar month.",
+                  "    pm.expect(body.metrics.eventsThisMonth).to.be.a('number').and.to.be.at.least(0);",
+                  "    pm.expect(body.metrics.eventsPeriod.from).to.match(/^\\d{4}-\\d{2}-01$/);",
+                  "    pm.expect(body.metrics.eventsPeriod.to).to.match(/^\\d{4}-\\d{2}-(28|29|30|31)$/);",
+                  "    pm.expect(body.metrics.eventsPeriod.to.slice(0, 7)).to.eql(body.metrics.eventsPeriod.from.slice(0, 7));",
                   "    body.projects.forEach((project) => {",
                   "        pm.expect(project.id).to.match(/^project-\\d+$/);",
                   "        pm.expect(project.status).to.be.oneOf(['todo', 'in-progress', 'review', 'done']);",
@@ -513,6 +523,11 @@
                   "    });",
                   "    body.events.forEach((event) => pm.expect(event.date).to.match(/^\\d{4}-\\d{2}-\\d{2}$/));",
                   "    pm.expect(body.userFirstName).to.eql('Perf');",
+                  "});",
+                  "pm.test(\"MAIR-1177 the metrics of the bootstrap have their contract shape\", function () {",
+                  "    const metrics = pm.response.json().metrics;",
+                  "    pm.expect(Object.keys(metrics).sort()).to.eql(['eventsPeriod', 'eventsThisMonth', 'totalProjects']);",
+                  "    pm.expect(Object.keys(metrics.eventsPeriod).sort()).to.eql(['from', 'to']);",
                   "});"
                 ]
               }
@@ -565,6 +580,238 @@
         }
       ],
       "description": "The session is the Bearer JWT, verified by the BFF and resolved against Core API; the bootstrap is aggregated from the three APIs within the session scope."
+    },
+    {
+      "name": "MAIR-1177 Events of the month",
+      "item": [
+        {
+          "name": "MAIR-1177 Bootstrap of the agent before the new event",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_agent}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "bootstrap"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 with the count of the month\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const metrics = pm.response.json().metrics;",
+                  "    pm.expect(metrics.eventsThisMonth).to.be.a('number');",
+                  "    pm.environment.set('events_month_before', metrics.eventsThisMonth);",
+                  "    pm.environment.set('events_month_from', metrics.eventsPeriod.from);",
+                  "    pm.environment.set('events_month_to', metrics.eventsPeriod.to);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "MAIR-1177 The agent creates an event in the current month (Calendar API)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Noon UTC on the first day of the month is in that month in Paris, whatever the season.",
+                  "const day = pm.environment.get('events_month_from');",
+                  "pm.environment.set('month_event_start', `${day}T12:00:00Z`);",
+                  "pm.environment.set('month_event_end', `${day}T13:00:00Z`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 with the id of the event\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    const id = pm.response.json().event_id;",
+                  "    pm.expect(id).to.be.a('number');",
+                  "    pm.environment.set('month_event_id', id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_agent}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Newman month event {{run_id}}\",\n  \"events_start_time\": \"{{month_event_start}}\",\n  \"events_end_time\": \"{{month_event_end}}\"\n}"
+            },
+            "url": {
+              "raw": "{{calendarApiUrl}}/api/v1/events/",
+              "host": [
+                "{{calendarApiUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                ""
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "MAIR-1177 The dashboard counts the new event of the month",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_agent}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "bootstrap"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"The count of the month went up by one, over the same period\", function () {",
+                  "    const metrics = pm.response.json().metrics;",
+                  "    pm.expect(metrics.eventsThisMonth).to.eql(Number(pm.environment.get('events_month_before')) + 1);",
+                  "    pm.expect(metrics.eventsPeriod).to.eql({ from: pm.environment.get('events_month_from'), to: pm.environment.get('events_month_to') });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "MAIR-1177 The agent deletes the event (Calendar API)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_agent}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{calendarApiUrl}}/api/v1/events/{{month_event_id}}/",
+              "host": [
+                "{{calendarApiUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{month_event_id}}",
+                ""
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "MAIR-1177 The dashboard no longer counts the deleted event",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_agent}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "bootstrap"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"The count of the month is back to its value before the event\", function () {",
+                  "    pm.expect(pm.response.json().metrics.eventsThisMonth).to.eql(Number(pm.environment.get('events_month_before')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
     }
   ]
 }

@@ -6,7 +6,7 @@ import {
 } from '@mairie360/bffs-lib';
 import { ErrorSchema, registry } from '../openapi-registry';
 import { calendarApi, coreApi, elearningApi, messageApi, projectApi } from '../clients/upstreams';
-import { nextOccurrence } from '../occurrences';
+import { countOccurrences, nextOccurrence, parisMonth } from '../occurrences';
 
 const router = Router();
 const Project = z.object({
@@ -24,7 +24,14 @@ const Availability = z.enum(['available', 'unavailable']);
 const eventSortKey = (event: z.infer<typeof Event>) => `${event.date}T${event.startTime ?? '00:00'}`;
 export const DashboardBootstrapSchema = registry.register('DashboardBootstrap', z.object({
   userFirstName: z.string(), projects: z.array(Project), tasks: z.array(Task.extend({ projectId: z.string() })),
-  events: z.array(Event), metrics: z.object({ totalProjects: z.number().nullable() }),
+  events: z.array(Event), metrics: z.object({
+    totalProjects: z.number().nullable(),
+    eventsThisMonth: z.number().int().nonnegative().nullable().openapi({ description: "Occurrences of the user's events starting during `eventsPeriod` (recurring events expanded), like the month view of the calendar; null when Calendar API is unavailable" }),
+    eventsPeriod: z.object({
+      from: z.string().openapi({ description: 'First day of the current Europe/Paris calendar month (YYYY-MM-DD)' }),
+      to: z.string().openapi({ description: 'Last day of the current Europe/Paris calendar month (YYYY-MM-DD)' }),
+    }).openapi({ description: 'Period counted by `eventsThisMonth`' }),
+  }),
   sources: z.object({ projects: Availability, tasks: Availability, calendar: Availability, trainings: Availability, messages: Availability }),
   // MAIR-825 (Dashboard V2): additive fields only, the fields above keep their shape.
   userLastName: z.string().openapi({ description: 'Last name from Core API (empty string when it has none)' }),
@@ -141,7 +148,7 @@ function communeName(): string | null {
 }
 
 router.get('/bootstrap', async (req, res) => {
-  // One wave (MAIR-525): the profile, the projects, the tasks, the events and the trainings start together, from the APIs; no other
+  // One wave (MAIR-525): the profile, the projects, the tasks, the events (next 30 days and current month), the trainings and the unread total start together, from the APIs; no other
   // BFF is called. A refused session (401) from any call fails the whole answer.
   const me = callUpstream('CORE_API', async () => CoreMe.parse((await coreApi.getMe(asCaller('CORE_API', req))).data), READ);
   // The role comes from the verified token (MAIR-529); only a token without it waits for Core's profile to read tasks.
@@ -149,11 +156,13 @@ router.get('/bootstrap', async (req, res) => {
   // The next 30 days of the Europe/Paris calendar, read once so the events and their occurrences share it.
   const now = new Date();
   const window = parisDateWindow(30, now);
+  // The current Europe/Paris calendar month, for the events indicator (read on its own: its failure only hides the count).
+  const month = parisMonth(now);
   const roles = tokenRole !== undefined ? Promise.resolve([tokenRole]) : me.then((profile) => profile.roles ?? (profile.role ? [profile.role] : []));
-  const [meResult, projectsResult, tasksResult, calendarResult, trainingsResult, unreadResult] = await Promise.allSettled([
-    me, readProjects(req), readTasks(req, roles), readEvents(req, window), readTrainings(req), readUnread(req),
+  const [meResult, projectsResult, tasksResult, calendarResult, trainingsResult, unreadResult, monthResult] = await Promise.allSettled([
+    me, readProjects(req), readTasks(req, roles), readEvents(req, window), readTrainings(req), readUnread(req), readEvents(req, month),
   ]);
-  for (const result of [projectsResult, tasksResult, calendarResult, trainingsResult, unreadResult]) {
+  for (const result of [projectsResult, tasksResult, calendarResult, trainingsResult, unreadResult, monthResult]) {
     if (result.status === 'rejected' && result.reason instanceof HttpError && result.reason.status === 401) throw result.reason;
   }
   // The profile is required: its failure is the answer.
@@ -204,6 +213,13 @@ router.get('/bootstrap', async (req, res) => {
     }).sort((a, b) => TRAINING_ORDER[a.status] - TRAINING_ORDER[b.status] || dueKey(a.dueDate) - dueKey(b.dueDate))
     : [];
   const profile = meResult.value;
+  // Unusable events are skipped, like in the list above.
+  const eventsThisMonth = monthResult.status === 'fulfilled'
+    ? monthResult.value.events.reduce<number>((total, raw) => {
+      const parsed = CalendarEvent.safeParse(raw);
+      return parsed.success ? total + countOccurrences(parsed.data, month) : total;
+    }, 0)
+    : null;
 
   return res.json(DashboardBootstrapSchema.parse({
     userFirstName: profile.first_name,
@@ -217,7 +233,7 @@ router.get('/bootstrap', async (req, res) => {
     trainings: trainings.slice(0, TRAININGS_SHOWN),
     // Message API is optional too: not configured, unreachable or failing, the badge is left out.
     unreadMessages: unreadResult.status === 'fulfilled' ? unreadResult.value.unread_count : null,
-    metrics: { totalProjects: page ? page.total : null },
+    metrics: { totalProjects: page ? page.total : null, eventsThisMonth, eventsPeriod: month },
     sources: {
       projects: page ? 'available' : 'unavailable',
       tasks: tasksResult.status === 'fulfilled' ? 'available' : 'unavailable',

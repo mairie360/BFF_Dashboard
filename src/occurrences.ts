@@ -67,3 +67,29 @@ export function nextOccurrence(event: CalendarSeries, lastDay: string, now = new
   }
   return null;
 }
+
+/** First and last day (YYYY-MM-DD) of the Europe/Paris calendar month holding `now`. */
+export function parisMonth(now = new Date()): { from: string; to: string } {
+  const today = parisDate(now);
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  // Day 0 of the next month is the last day of this one.
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return { from: `${today.slice(0, 8)}01`, to: `${today.slice(0, 8)}${String(lastDay).padStart(2, '0')}` };
+}
+
+/**
+ * How many occurrences of `event` start between `from` and `to` (Paris days, inclusive), recurring ones expanded
+ * with the same rule as `nextOccurrence`. The calendar front counts its month view the same way: one per start day,
+ * past or not; an occurrence that started before `from` is not counted.
+ */
+export function countOccurrences(event: CalendarSeries, { from, to }: { from: string; to: string }): number {
+  const first = utcToWallClock(event.start).date;
+  let count = first >= from && first <= to ? 1 : 0;
+  if (!event.recurrence) return count;
+  // Ordered YYYY-MM-DD strings: at most one month of days.
+  for (let date = from > first ? from : addDays(first, 1); date <= to; date = addDays(date, 1)) {
+    if (startsOn(date, first, event.recurrence)) count += 1;
+  }
+  return count;
+}

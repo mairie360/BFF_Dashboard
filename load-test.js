@@ -76,6 +76,7 @@ function isAgentDashboard(response) {
     && Array.isArray(body.projects)
     && body.projects.length >= MIN_PROJECTS
     && body.metrics.totalProjects >= MIN_PROJECTS
+    && typeof body.metrics.eventsThisMonth === 'number'
     && body.sources.projects === 'available'
     && body.sources.tasks === 'available'
     && body.sources.calendar === 'available';
