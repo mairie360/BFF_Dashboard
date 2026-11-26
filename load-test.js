@@ -90,6 +90,17 @@ const coverage = createCoverage({
   'GET /check_apis': ({ request }) =>
     check(request(), { 'check_apis 200': (r) => r.status === 200 }),
 
+  // --- Global search ---
+  // As a seeded agent: each module answers or is listed as unavailable, never an error.
+  'GET /search': ({ request }) =>
+    check(request({ query: { q: 'ag' } }), {
+      'search 200': (r) => r.status === 200,
+      'search is the grouped answer': (r) => {
+        const body = json(r);
+        return Boolean(body) && Array.isArray(body.groups) && Array.isArray(body.unavailable);
+      },
+    }),
+
   // --- Dashboard ---
   'GET /dashboard/bootstrap': ({ request }) =>
     check(request(), {

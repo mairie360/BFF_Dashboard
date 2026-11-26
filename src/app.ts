@@ -7,6 +7,7 @@ import { logger } from './logger';
 import healthRouter from './routes/health';
 import checkApis from './routes/check_apis';
 import moduleRouter from './routes/dashboard';
+import searchRouter from './routes/search';
 
 export const app = express();
 // Client IP (req.ip) as seen behind the ingress: see parseTrustProxy (TRUST_PROXY, unset = no proxy trusted).
@@ -23,6 +24,8 @@ app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
 app.get(['/openapi.json', '/swagger.json'], (_req, res) => res.json(openApiDocument));
 app.use('/health', healthRouter);
 app.use('/check_apis', checkApis);
+// The header's global search, over every business API (noStore + requireSession in the router).
+app.use('/search', searchRouter);
 // Session-bound answers: never cached, and refused with a 401 before any upstream call unless the Bearer token
 // is a session Core signed, verified with its public key JWT_PUBLIC_KEY (bffs-lib requireSession, MAIR-474,
 // MAIR-680).
