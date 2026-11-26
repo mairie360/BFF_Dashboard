@@ -5,7 +5,7 @@ import { EventCategory, EventVisibility, type EventView, type GetCalendarResultV
 import { getCoreAPIMairie360 } from '@mairie360/core-api-openapi/endpoints/coreAPIMairie360';
 import type { GetMeResponseView, UserPreferences } from '@mairie360/core-api-openapi/model';
 import { getELearningAPIMairie360 } from '@mairie360/elearning-api-openapi/endpoints/eLearningAPIMairie360';
-import { type CatalogFormation, type CatalogModule, type GetCatalogResultView, Status } from '@mairie360/elearning-api-openapi/model';
+import { type CatalogFormation, type CatalogModule, CourseSource, type GetCatalogResultView, Status } from '@mairie360/elearning-api-openapi/model';
 import { getProjectAPIMairie360 } from '@mairie360/project-api-openapi/endpoints/projectAPIMairie360';
 import {
   type GetProjectsResultView,
@@ -52,7 +52,7 @@ export function corePreferences(fields: Partial<UserPreferences> = {}): UserPref
 export function projectListItem(id: number, overrides: Partial<ProjectListItemView> = {}): ProjectListItemView {
   return {
     id, name: `Projet ${id}`, description: `Description du projet ${id}`, status: ProjectStatus.Active,
-    tasks_total: 0, tasks_completed: 0, priority: TaskPriority.Medium, due_date: null, members: [], members_total: 0,
+    tasks_total: 0, tasks_completed: 0, priority: TaskPriority.Medium, due_date: null, members: [], members_total: 0, can_manage: false,
     ...overrides,
   };
 }
@@ -96,7 +96,7 @@ export const calendarResult = (events: EventView[]): GetCalendarResultView => ({
 
 /** A module of a formation of `GET /api/v1/formations/catalog/` (ELearning API, MAIR-825). */
 export function catalogModule(id: number, completed: boolean): CatalogModule {
-  return { id, name: `Module ${id}`, description: '', completed, files: [] };
+  return { id, name: `Module ${id}`, description: '', completed, files: [], duration_seconds: 0 };
 }
 
 /**
@@ -105,7 +105,7 @@ export function catalogModule(id: number, completed: boolean): CatalogModule {
  */
 export function catalogFormation(id: number, status: Status, done = 0, total = 0, overrides: Partial<CatalogFormation> = {}): CatalogFormation {
   return {
-    id, name: `Formation ${id}`, description: '', status,
+    id, name: `Formation ${id}`, description: '', status, is_mandatory: false, learners: 0, rating_count: 0, source: CourseSource.internal,
     modules: Array.from({ length: total }, (_, index) => catalogModule(id * 100 + index, index < done)), ...overrides,
   };
 }
